@@ -535,8 +535,6 @@
 			mst_exec_state <= EXEC_STATE__IDLE;
 			init_count <= 0;
 			
-			// axis_tvalid <= LOW;
-
 			module_ready <= TRUE;
 			reset_buffer <= TRUE;  // start reset buffer
 
@@ -546,8 +544,6 @@
 				EXEC_STATE__IDLE: begin
 
 					reset_buffer <= TRUE;  // start reset buffer
-
-					// axis_tvalid <= LOW;
 
 					if (one_frame_sampling_trigger_rising_edge) begin
 
@@ -703,7 +699,11 @@
 	
 	reg adc_data_have_pushed = 1'b0;
 
-	/* sync 0: software rst */
+	/* --------------------------------------------------------------------------------------------------------- */
+	/* ----------------------------------------------- SYNC ---------------------------------------------------- */
+	/* --------------------------------------------------------------------------------------------------------- */
+
+	/* ----------------------- sync 0: software rst (AXI-Stream Domain --> ADC Domain) ------------------------- */
 
 	always @(posedge adc_clk) begin
 		if (!adc_rst_n) begin
@@ -717,7 +717,7 @@
 		end
 	end
 
-	/* sync 1: sampling_clk_increment */
+	/* ----------------------- sync 1: sampling_clk_increment -------------------------------------------------- */
 
 	always @(posedge adc_clk) begin
 		if (!adc_rst_n || software_rst_sync_adc) begin
@@ -769,18 +769,21 @@
 
 			end else begin
 
+				/* reset */
+
 				sampling_clk_counter <= 0;
 				sampling_clk <= LOW;
-
 				adc_have_sampled <= FALSE;
 
 			end
 		end
 	end
 
+	/* -------------------------------------------------------------------------------------------------------------------- */
 	/* ---------------------------------------- ADC sampling (FIFO write logic) ------------------------------------------- */
+	/* -------------------------------------------------------------------------------------------------------------------- */
 
-	/* Flags */
+	/* --------------------------------------------------- FLAGS ---------------------------------------------------------- */
 
 	always @(posedge adc_clk) begin
 
@@ -801,7 +804,7 @@
 
 					if (`ADC_SAMPLING_COMPLETE && adc_have_sampled) begin
 
-						if (!adc_data_have_pushed) fifo_write_state <= FIFO_WRITE_STATE__WRITE_FIFO;
+						if (!adc_data_have_pushed) fifo_write_state <= FIFO_WRITE_STATE__WRITE_FIFO;  /* no data pushed */
 						else fifo_write_state <= FIFO_WRITE_STATE__IDLE;
 
 					/* sampling not complete, reset related flag */
@@ -817,7 +820,10 @@
 
 				FIFO_WRITE_STATE__WRITE_FIFO: begin
 
+					/* ----------------------------------------------------------------------------------- */
+					/* ----------------------- FIFO control (currently pushed) --------------------------- */
 					/* ---------- NOTE: current pushed data count == (fifo_pushed_number + 1) ------------ */
+					/* ----------------------------------------------------------------------------------- */
 
 					if (`ONE_VALID_DATA_PUSHED_IN_FIFO) begin
 					
@@ -833,7 +839,10 @@
 
 						end
 
-					/* ---------- NOTE: current pushed data count == fifo_pushed_number ------------ */
+					/* ----------------------------------------------------------------------------------- */
+					/* ----------------------- FIFO control (NOT currently pushed) ----------------------- */
+					/* -------------- NOTE: current pushed data count == fifo_pushed_number -------------- */
+					/* ----------------------------------------------------------------------------------- */
 
 					end else begin
 					
@@ -861,7 +870,7 @@
 		end
 	end
 
-	/* Registers */
+	/* -------------------------------------------------- REGISTERS ------------------------------------------------------- */
 
 	always @(posedge adc_clk) begin
 	   	if (!adc_rst_n || software_rst_sync_adc) begin
@@ -892,6 +901,12 @@
 							if (fifo_almost_full) fifo_write_en <= FALSE;
 							else fifo_write_en <= TRUE;
 
+						end else begin
+
+							fifo_pushed_number <= 0;
+							current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};
+							fifo_write_en <= FALSE;
+						  
 						end
 
 	        	    end
@@ -919,7 +934,7 @@
 
 								8'd9: current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};  /* pushed 10, jump */
 
-								default: current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};
+								default: current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};  /* invalid */
 							endcase
 
 							/* ----------------------------------------------------------------------------------- */
@@ -969,9 +984,13 @@
 	       		endcase
 
 			end else begin
-				
-				fifo_write_en <= FALSE;  /* for reset */
 
+				/* mst_exec_state_sync != EXEC_STATE__SEND_STREAM, Reset */
+				
+				fifo_write_en <= FALSE;
+				fifo_pushed_number <= 0;
+				current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};
+				
 			end
 	    end
 	end
