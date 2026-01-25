@@ -75,6 +75,15 @@
 	reg [(C_M_AXIS_TDATA_WIDTH/8)-1 : 0] axis_tstrb;
 	reg axis_tlast = FALSE;
 
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame1_sync;
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame2_sync;
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame3_sync;
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame4_sync;
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame5_sync;
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame6_sync;
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame7_sync;
+	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame8_sync;
+
 	wire trigger_rising_edge = (trigger_sync1 && !trigger_sync2);
 
 	assign M_AXIS_TVALID = axis_tvalid;
@@ -84,7 +93,7 @@
 
 	assign axis_send_busy = axis_send_busy_reg;
 
-	`define AXIS_HAND_SHACK (M_AXIS_TREADY && M_AXIS_TVALID)
+	`define PRE_DELAY_M00_AXIS_HAND_SHACK (M_AXIS_TREADY && M_AXIS_TVALID)
 
 	/* -------------------------------------------------------------------------- */
 	/* --------------------------------- SYNC ----------------------------------- */
@@ -95,10 +104,29 @@
 			software_rst_sync <= FALSE;
 			trigger_sync1 <= FALSE;
 			trigger_sync2 <= FALSE;
+
+			data_frame1_sync <= 0;
+			data_frame2_sync <= 0;
+			data_frame3_sync <= 0;
+			data_frame4_sync <= 0;
+			data_frame5_sync <= 0;
+			data_frame6_sync <= 0;
+			data_frame7_sync <= 0;
+			data_frame8_sync <= 0;
+
 		end else begin
 			software_rst_sync <= software_rst;
 			trigger_sync1 <= send_trigger;
 			trigger_sync2 <= trigger_sync1;
+
+			data_frame1_sync <= data_frame1;
+			data_frame2_sync <= data_frame2;
+			data_frame3_sync <= data_frame3;
+			data_frame4_sync <= data_frame4;
+			data_frame5_sync <= data_frame5;
+			data_frame6_sync <= data_frame6;
+			data_frame7_sync <= data_frame7;
+			data_frame8_sync <= data_frame8;
 		end
 	end
 
@@ -120,7 +148,7 @@
 				end
 
 				AXIS_SEND_DATA: begin
-					if (`AXIS_HAND_SHACK) begin
+					if (`PRE_DELAY_M00_AXIS_HAND_SHACK) begin
 						if (axis_sent_count >= FRAME_WORD_NUMBER - 1) axis_state <= AXIS_WAIT_FOR_TRIGGER;
 						else axis_state <= axis_state;
 					end else begin
@@ -170,19 +198,19 @@
 				end
 
 				AXIS_SEND_DATA: begin
-					if (`AXIS_HAND_SHACK) begin
+					if (`PRE_DELAY_M00_AXIS_HAND_SHACK) begin
 
 						axis_sent_count <= axis_sent_count + 1;
 
 						case (axis_sent_count)
-							8'd0: axis_tdata <= data_frame1;
-							8'd1: axis_tdata <= data_frame2;
-							8'd2: axis_tdata <= data_frame3;
-							8'd3: axis_tdata <= data_frame4;
-							8'd4: axis_tdata <= data_frame5;
-							8'd5: axis_tdata <= data_frame6;
-							8'd6: axis_tdata <= data_frame7;
-							8'd7: axis_tdata <= data_frame8;
+							8'd0: axis_tdata <= data_frame1_sync;
+							8'd1: axis_tdata <= data_frame2_sync;
+							8'd2: axis_tdata <= data_frame3_sync;
+							8'd3: axis_tdata <= data_frame4_sync;
+							8'd4: axis_tdata <= data_frame5_sync;
+							8'd5: axis_tdata <= data_frame6_sync;
+							8'd6: axis_tdata <= data_frame7_sync;
+							8'd7: axis_tdata <= data_frame8_sync;
 							8'd8: axis_tdata <= FRAME_TAILER;
 							8'd9: axis_tdata <= 0;
 							default: axis_tdata <= 0;
@@ -210,6 +238,7 @@
 				default: begin
 					axis_send_busy_reg <= FALSE;
 					axis_tvalid = FALSE;
+					axis_tdata <= 0;
 				end
 
 			endcase

@@ -92,8 +92,8 @@
 
 	localparam MAXIMUM_PRE_DELAY_COUNT = ((MAXIMUM_ARRAY_SIZE_MM * MAXIMUM_SAMPLING_FREQ_HZ) / (WAVE_VELOCITY_MPS * 1000)) + 1;
 
-	localparam DELAY_LINE_ADDR_SIZE = clogb2(MAXIMUM_PRE_DELAY_COUNT);
-	localparam AXIS_RECEIVE_BUFFER_ADDR_SIZE = clogb2(FRAME_WORD_DATA_NUMBER);
+	localparam DELAY_LINE_ADDR_SIZE = clogb2(MAXIMUM_PRE_DELAY_COUNT + 1);
+	localparam AXIS_RECEIVE_BUFFER_ADDR_SIZE = clogb2(FRAME_WORD_DATA_NUMBER + 1);
 
 	localparam ACTUAL_BRAM_DEPTH = 1 << DELAY_LINE_ADDR_SIZE;  /* 2 ^ (DELAY_LINE_ADDR_SIZE) */
 	localparam ACTUAL_MAXIMUM_PRE_DELAY = ACTUAL_BRAM_DEPTH - 1;
@@ -103,11 +103,12 @@
 					  AXIS_WAIT_FOR_DATA_TAILER   = 4'd2,
 					  AXIS_PUSH_BRAM              = 4'd3,
 					  AXIS_CHECK_FREEZE           = 4'd4,
-					  AXIS_READ_AND_PACKAGE       = 4'd5,
-					  AXIS_SEND_DATA_WAIT_IDLE    = 4'd6,
-					  AXIS_SEND_DATA_TRIGGER      = 4'd7,
-					  AXIS_SEND_DATA_WAIT_START   = 4'd8,
-					  AXIS_SEND_DATA_WAIT_END     = 4'd9;
+					  AXIS_READ                   = 4'd5,
+					  AXIS_PACKAGE                = 4'd6,
+					  AXIS_SEND_DATA_WAIT_IDLE    = 4'd7,
+					  AXIS_SEND_DATA_TRIGGER      = 4'd8,
+					  AXIS_SEND_DATA_WAIT_START   = 4'd9,
+					  AXIS_SEND_DATA_WAIT_END     = 4'd10;
 
 	`ifndef SYNTHESIS
 		initial begin
@@ -138,6 +139,8 @@
 	(* ram_style="block" *) reg [ADC_DATA_WIDTH_BIT-1:0] ch15_delay_line [0:ACTUAL_BRAM_DEPTH-1];
 	(* ram_style="block" *) reg [ADC_DATA_WIDTH_BIT-1:0] ch16_delay_line [0:ACTUAL_BRAM_DEPTH-1];
 
+	reg [ADC_DATA_WIDTH_BIT-1:0] bram_channel_pdelay_data [0: ADC_CHANNEL_COUNT-1];  /* [i] for channel i+1*/
+
 	reg [C_S_AXIS_TDATA_WIDTH-1:0]	data_frame1_reg;
 	reg [C_S_AXIS_TDATA_WIDTH-1:0]	data_frame2_reg;
 	reg [C_S_AXIS_TDATA_WIDTH-1:0]	data_frame3_reg;
@@ -147,13 +150,13 @@
 	reg [C_S_AXIS_TDATA_WIDTH-1:0]	data_frame7_reg;
 	reg [C_S_AXIS_TDATA_WIDTH-1:0]	data_frame8_reg;
 
-	reg [DELAY_LINE_ADDR_SIZE-1: 0] bram_save_pointer [0: ADC_CHANNEL_COUNT-1];  /* bram_save_pointer[i] is the pointer of channel(i+1) */
+	reg [DELAY_LINE_ADDR_SIZE-1: 0] bram_save_pointer;  /* bram_save_pointer is the pointer of channel(i+1) */
 	reg [DELAY_LINE_ADDR_SIZE-1: 0] bram_read_pointer [0: ADC_CHANNEL_COUNT-1];  /* bram_read_pointer[i] is the pointer of channel(i+1) */
 	reg [DELAY_LINE_ADDR_SIZE-1: 0] channel_pdelay_sync [0: ADC_CHANNEL_COUNT-1];  /* channel_pdelay_sync[i] is the pointer of channel(i+1) */
 
 	reg [(C_S_AXI_DATA_WIDTH/2)-1: 0] max_pdelay_reg = MAXIMUM_PRE_DELAY_COUNT;
 
-	reg [ADC_CHANNEL_COUNT-1: 0] channel_refreshed = 0;  /* indicate channels are refreshed */
+	reg  channel_refreshed = FALSE;  /* indicate channels are refreshed */
 
 	reg [C_S_AXIS_TDATA_WIDTH - 1: 0] axis_receive_buffer[0: FRAME_WORD_DATA_NUMBER-1];
 	reg [AXIS_RECEIVE_BUFFER_ADDR_SIZE - 1: 0] axis_received_count = 0;
@@ -161,13 +164,14 @@
 	reg [3: 0] axis_state = AXIS_WAIT_FOR_DATA_HEADER;
 	reg freeze_sync = FALSE;
 	reg software_rst_sync = FALSE;
+	reg axis_send_busy_sync = FALSE;
 	
 	reg freezed_reg = FALSE;
 	reg send_trigger_reg = FALSE;
 
 	assign freezed = freezed_reg;
 	assign send_trigger = send_trigger_reg;
-	assign refreshed = (channel_refreshed == {(ADC_CHANNEL_COUNT){1'b1}});
+	assign refreshed = channel_refreshed;
 
 	assign max_pdelay = max_pdelay_reg;
 
@@ -182,7 +186,7 @@
 
 	assign S_AXIS_TREADY = (axis_state <= AXIS_WAIT_FOR_DATA_TAILER);
 
-	`define AXIS_HAND_SHACK  (S_AXIS_TREADY && S_AXIS_TVALID)
+	`define PRE_DELAY_S00_AXIS_HAND_SHACK  (S_AXIS_TREADY && S_AXIS_TVALID)
 
 	/* -------------------------------------------------------------------------- */
 	/* --------------------------------- SYNC ----------------------------------- */
@@ -192,10 +196,13 @@
 
 	always @(posedge S_AXIS_ACLK) begin
 		if (S_AXIS_ARESETN == 1'b0) begin
-			for (i = 0; i <= ADC_CHANNEL_COUNT - 1; i = i + 1) channel_pdelay_sync[i] <= 0;
+			for (i = 0; i < ADC_CHANNEL_COUNT; i = i + 1) begin
+				channel_pdelay_sync[i] <= 0;
+			end
 			freeze_sync <= FALSE;
 			software_rst_sync <= FALSE;
 			max_pdelay_reg <= ACTUAL_MAXIMUM_PRE_DELAY;
+			axis_send_busy_sync <= FALSE;
 		end else begin
 
 			if (pdelay_ch1_ch2[15: 0] <= ACTUAL_MAXIMUM_PRE_DELAY) channel_pdelay_sync[0] <= pdelay_ch1_ch2[15: 0];
@@ -249,6 +256,7 @@
 			freeze_sync <= freeze;
 			max_pdelay_reg <= ACTUAL_MAXIMUM_PRE_DELAY;
 			software_rst_sync <= software_rst;
+			axis_send_busy_sync <= axis_send_busy;
 		end
 	end
 
@@ -265,7 +273,7 @@
 			case (axis_state)
 
 				AXIS_WAIT_FOR_DATA_HEADER: begin
-					if (`AXIS_HAND_SHACK) begin
+					if (`PRE_DELAY_S00_AXIS_HAND_SHACK) begin
 						if (S_AXIS_TDATA == FRAME_HEADER) axis_state <= AXIS_RECEIVE_DATA;
 						else axis_state <= axis_state;
 					end else begin
@@ -274,7 +282,7 @@
 				end
 
 				AXIS_RECEIVE_DATA: begin
-					if (`AXIS_HAND_SHACK) begin
+					if (`PRE_DELAY_S00_AXIS_HAND_SHACK) begin
 						if (axis_received_count >= FRAME_WORD_DATA_NUMBER - 1) axis_state <= AXIS_WAIT_FOR_DATA_TAILER;
 						else axis_state <= axis_state;
 					end else begin
@@ -284,7 +292,7 @@
 				end
 
 				AXIS_WAIT_FOR_DATA_TAILER: begin
-					if (`AXIS_HAND_SHACK) begin
+					if (`PRE_DELAY_S00_AXIS_HAND_SHACK) begin
 						if (S_AXIS_TDATA == FRAME_TAILER) axis_state <= AXIS_PUSH_BRAM;
 						else axis_state <= AXIS_WAIT_FOR_DATA_HEADER;  /* ERROR condition */
 					end else begin
@@ -299,17 +307,21 @@
 				AXIS_CHECK_FREEZE: begin
 					if (freeze_sync) axis_state <= AXIS_WAIT_FOR_DATA_HEADER;
 					else begin
-						if (refreshed) axis_state <= AXIS_READ_AND_PACKAGE;
+						if (refreshed) axis_state <= AXIS_READ;
 						else axis_state <= AXIS_WAIT_FOR_DATA_HEADER;
 					end
 				end
 
-				AXIS_READ_AND_PACKAGE: begin
+				AXIS_READ: begin
+					axis_state <= AXIS_PACKAGE;
+				end
+
+				AXIS_PACKAGE: begin
 					axis_state <= AXIS_SEND_DATA_WAIT_IDLE;
 				end
 
 				AXIS_SEND_DATA_WAIT_IDLE: begin
-					if (!axis_send_busy) axis_state <= AXIS_SEND_DATA_TRIGGER;
+					if (!axis_send_busy_sync) axis_state <= AXIS_SEND_DATA_TRIGGER;
 					else axis_state <= axis_state;
 				end
 
@@ -319,12 +331,12 @@
 				end
 
 				AXIS_SEND_DATA_WAIT_START: begin
-					if (axis_send_busy) axis_state <= AXIS_SEND_DATA_WAIT_END;
+					if (axis_send_busy_sync) axis_state <= AXIS_SEND_DATA_WAIT_END;
 					else axis_state <= axis_state;
 				end
 
 				AXIS_SEND_DATA_WAIT_END: begin
-					if (!axis_send_busy) axis_state <= AXIS_WAIT_FOR_DATA_HEADER;
+					if (!axis_send_busy_sync) axis_state <= AXIS_WAIT_FOR_DATA_HEADER;
 					else axis_state <= axis_state;
 				end
 
@@ -338,12 +350,13 @@
 
 	always @(posedge S_AXIS_ACLK) begin
 		if (S_AXIS_ARESETN == 1'b0 || software_rst_sync) begin
-			for (i = 0; i <= ADC_CHANNEL_COUNT - 1; i = i + 1) begin
-				bram_save_pointer[i] <= 0;
+			for (i = 0; i < ADC_CHANNEL_COUNT; i = i + 1) begin
+				bram_save_pointer <= 0;
 				bram_read_pointer[i] <= 0;
+				bram_channel_pdelay_data[i] <= 0;
 			end
 			axis_received_count <= 0;
-			channel_refreshed <= 0;
+			channel_refreshed <= FALSE;
 			freezed_reg <= FALSE;
 
 			data_frame1_reg <= 0;
@@ -369,7 +382,7 @@
 
 					send_trigger_reg <= FALSE;
 
-					if (`AXIS_HAND_SHACK) begin
+					if (`PRE_DELAY_S00_AXIS_HAND_SHACK) begin
 
 						/* push data to axis_receive_buffer */
 
@@ -390,44 +403,53 @@
 
 					send_trigger_reg <= FALSE;
 
-					for (i = 0; i <= ADC_CHANNEL_COUNT - 1; i = i + 1) begin
+					/* -------------- Read Pointer -------------- */
 
-						bram_read_pointer[i] <= bram_save_pointer[i] - channel_pdelay_sync[i];
+					for (i = 0; i < ADC_CHANNEL_COUNT; i = i + 1) begin
 
-						if (bram_save_pointer[i] >= (ACTUAL_BRAM_DEPTH - 1)) begin
-							bram_save_pointer[i] <= 0;  /* update pointer */
-							channel_refreshed[i] <= 1'b1;  /* update refreshed flag */
+						if (bram_save_pointer >= channel_pdelay_sync[i]) begin
+							bram_read_pointer[i] <= bram_save_pointer - channel_pdelay_sync[i];
 						end else begin
-							bram_save_pointer[i] <= bram_save_pointer[i] + 1;  /* update pointer */
-							channel_refreshed[i] <= channel_refreshed[i];
+							bram_read_pointer[i] <= ACTUAL_BRAM_DEPTH - (channel_pdelay_sync[i] - bram_save_pointer);
 						end
+
+					end
+
+					/* -------------- Save Pointer -------------- */
+
+					if (bram_save_pointer >= (ACTUAL_BRAM_DEPTH - 1)) begin
+						bram_save_pointer <= 0;  /* update pointer */
+						channel_refreshed <= TRUE;  /* update refreshed flag */
+					end else begin
+						bram_save_pointer <= bram_save_pointer + 1;  /* update pointer */
+						channel_refreshed <= channel_refreshed;
 					end
 
 					/* save data to bram */
-					
-					ch1_delay_line[bram_save_pointer[0]] <= axis_receive_buffer[0][15: 0];
-					ch2_delay_line[bram_save_pointer[1]] <= axis_receive_buffer[0][31: 16];
 
-					ch3_delay_line[bram_save_pointer[2]] <= axis_receive_buffer[1][15: 0];
-					ch4_delay_line[bram_save_pointer[3]] <= axis_receive_buffer[1][31: 16];
+					ch1_delay_line[bram_save_pointer] <= axis_receive_buffer[0][15: 0];
+					ch2_delay_line[bram_save_pointer] <= axis_receive_buffer[0][31: 16];
 
-					ch5_delay_line[bram_save_pointer[4]] <= axis_receive_buffer[2][15: 0];
-					ch6_delay_line[bram_save_pointer[5]] <= axis_receive_buffer[2][31: 16];
+					ch3_delay_line[bram_save_pointer] <= axis_receive_buffer[1][15: 0];
+					ch4_delay_line[bram_save_pointer] <= axis_receive_buffer[1][31: 16];
 
-					ch7_delay_line[bram_save_pointer[6]] <= axis_receive_buffer[3][15: 0];
-					ch8_delay_line[bram_save_pointer[7]] <= axis_receive_buffer[3][31: 16];
+					ch5_delay_line[bram_save_pointer] <= axis_receive_buffer[2][15: 0];
+					ch6_delay_line[bram_save_pointer] <= axis_receive_buffer[2][31: 16];
 
-					ch9_delay_line[bram_save_pointer[8]] <= axis_receive_buffer[4][15: 0];
-					ch10_delay_line[bram_save_pointer[9]] <= axis_receive_buffer[4][31: 16];
+					ch7_delay_line[bram_save_pointer] <= axis_receive_buffer[3][15: 0];
+					ch8_delay_line[bram_save_pointer] <= axis_receive_buffer[3][31: 16];
 
-					ch11_delay_line[bram_save_pointer[10]] <= axis_receive_buffer[5][15: 0];
-					ch12_delay_line[bram_save_pointer[11]] <= axis_receive_buffer[5][31: 16];
+					ch9_delay_line[bram_save_pointer] <= axis_receive_buffer[4][15: 0];
+					ch10_delay_line[bram_save_pointer] <= axis_receive_buffer[4][31: 16];
 
-					ch13_delay_line[bram_save_pointer[12]] <= axis_receive_buffer[6][15: 0];
-					ch14_delay_line[bram_save_pointer[13]] <= axis_receive_buffer[6][31: 16];
+					ch11_delay_line[bram_save_pointer] <= axis_receive_buffer[5][15: 0];
+					ch12_delay_line[bram_save_pointer] <= axis_receive_buffer[5][31: 16];
 
-					ch15_delay_line[bram_save_pointer[14]] <= axis_receive_buffer[7][15: 0];
-					ch16_delay_line[bram_save_pointer[15]] <= axis_receive_buffer[7][31: 16];
+					ch13_delay_line[bram_save_pointer] <= axis_receive_buffer[6][15: 0];
+					ch14_delay_line[bram_save_pointer] <= axis_receive_buffer[6][31: 16];
+
+					ch15_delay_line[bram_save_pointer] <= axis_receive_buffer[7][15: 0];
+					ch16_delay_line[bram_save_pointer] <= axis_receive_buffer[7][31: 16];
 
 				end
 
@@ -439,18 +461,40 @@
 					else freezed_reg <= FALSE;
 				end
 
-				AXIS_READ_AND_PACKAGE: begin
+				AXIS_READ: begin
+					send_trigger_reg <= FALSE;
 
-					send_trigger_reg <= FALSE;  /* trigger! */
+					bram_channel_pdelay_data[0] <= ch1_delay_line[bram_read_pointer[0]];
+					bram_channel_pdelay_data[1] <= ch2_delay_line[bram_read_pointer[1]];
+					bram_channel_pdelay_data[2] <= ch3_delay_line[bram_read_pointer[2]];
+					bram_channel_pdelay_data[3] <= ch4_delay_line[bram_read_pointer[3]];
+					bram_channel_pdelay_data[4] <= ch5_delay_line[bram_read_pointer[4]];
+					bram_channel_pdelay_data[5] <= ch6_delay_line[bram_read_pointer[5]];
+					bram_channel_pdelay_data[6] <= ch7_delay_line[bram_read_pointer[6]];
+					bram_channel_pdelay_data[7] <= ch8_delay_line[bram_read_pointer[7]];
+					bram_channel_pdelay_data[8] <= ch9_delay_line[bram_read_pointer[8]];
+					bram_channel_pdelay_data[9] <= ch10_delay_line[bram_read_pointer[9]];
+					bram_channel_pdelay_data[10] <= ch11_delay_line[bram_read_pointer[10]];
+					bram_channel_pdelay_data[11] <= ch12_delay_line[bram_read_pointer[11]];
+					bram_channel_pdelay_data[12] <= ch13_delay_line[bram_read_pointer[12]];
+					bram_channel_pdelay_data[13] <= ch14_delay_line[bram_read_pointer[13]];
+					bram_channel_pdelay_data[14] <= ch15_delay_line[bram_read_pointer[14]];
+					bram_channel_pdelay_data[15] <= ch16_delay_line[bram_read_pointer[15]];
+					
+				end
 
-					data_frame1_reg <= {ch2_delay_line[bram_read_pointer[1]], ch1_delay_line[bram_read_pointer[0]]};
-					data_frame2_reg <= {ch4_delay_line[bram_read_pointer[3]], ch3_delay_line[bram_read_pointer[2]]};
-					data_frame3_reg <= {ch6_delay_line[bram_read_pointer[5]], ch5_delay_line[bram_read_pointer[4]]};
-					data_frame4_reg <= {ch8_delay_line[bram_read_pointer[7]], ch7_delay_line[bram_read_pointer[6]]};
-					data_frame5_reg <= {ch10_delay_line[bram_read_pointer[9]], ch9_delay_line[bram_read_pointer[8]]};
-					data_frame6_reg <= {ch12_delay_line[bram_read_pointer[11]], ch11_delay_line[bram_read_pointer[10]]};
-					data_frame7_reg <= {ch14_delay_line[bram_read_pointer[13]], ch13_delay_line[bram_read_pointer[12]]};
-					data_frame8_reg <= {ch16_delay_line[bram_read_pointer[15]], ch15_delay_line[bram_read_pointer[14]]};
+				AXIS_PACKAGE: begin
+
+					send_trigger_reg <= FALSE;
+
+					data_frame1_reg <= {bram_channel_pdelay_data[1], bram_channel_pdelay_data[0]};
+					data_frame2_reg <= {bram_channel_pdelay_data[3], bram_channel_pdelay_data[2]};
+					data_frame3_reg <= {bram_channel_pdelay_data[5], bram_channel_pdelay_data[4]};
+					data_frame4_reg <= {bram_channel_pdelay_data[7], bram_channel_pdelay_data[6]};
+					data_frame5_reg <= {bram_channel_pdelay_data[9], bram_channel_pdelay_data[8]};
+					data_frame6_reg <= {bram_channel_pdelay_data[11], bram_channel_pdelay_data[10]};
+					data_frame7_reg <= {bram_channel_pdelay_data[13], bram_channel_pdelay_data[12]};
+					data_frame8_reg <= {bram_channel_pdelay_data[15], bram_channel_pdelay_data[14]};
 				end
 
 				AXIS_SEND_DATA_WAIT_IDLE: begin
@@ -458,12 +502,12 @@
 				end
 
 				AXIS_SEND_DATA_TRIGGER: begin
-					if (send_trigger_reg) send_trigger_reg <= FALSE;  /* if High, set to Low */
-					else send_trigger_reg <= TRUE;  /* if Low, set to High */
+					send_trigger_reg <= TRUE;  /* trigger! */
 				end
 
 				AXIS_SEND_DATA_WAIT_START: begin
-					send_trigger_reg <= FALSE;
+					if (axis_send_busy_sync) send_trigger_reg <= FALSE;
+					else send_trigger_reg <= TRUE;
 				end
 
 				AXIS_SEND_DATA_WAIT_END: begin
@@ -471,14 +515,16 @@
 				end
 
 				default: begin
+
+					bram_save_pointer <= 0;
 				
-					for (i = 0; i <= ADC_CHANNEL_COUNT - 1; i = i + 1) begin
-						bram_save_pointer[i] <= 0;
+					for (i = 0; i < ADC_CHANNEL_COUNT; i = i + 1) begin
 						bram_read_pointer[i] <= 0;
+						bram_channel_pdelay_data[i] <= 0;
 					end
 
 					axis_received_count <= 0;
-					channel_refreshed <= 0;
+					channel_refreshed <= FALSE;
 					freezed_reg <= FALSE;
 
 					data_frame1_reg <= 0;

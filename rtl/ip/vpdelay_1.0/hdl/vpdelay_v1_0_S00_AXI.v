@@ -108,8 +108,8 @@
 	localparam FREEZE_TIMER_TIMEOUT_CYCLES = FREEZE_TIMEOUT_MS * 1000;  /* us count */
 
 	reg freeze_reg = FALSE;
-	reg [16: 0] freeze_timer = 16'b0;
-	reg [16: 0] freeze_us_timer = 16'b0;
+	reg [15: 0] freeze_timer = 16'b0;
+	reg [15: 0] freeze_us_timer = 16'b0;
 
 	reg freeze_timeout = FALSE;
 	reg freeze_timeout_sync = FALSE;

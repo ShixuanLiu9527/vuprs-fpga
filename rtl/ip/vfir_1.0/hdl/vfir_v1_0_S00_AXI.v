@@ -1,14 +1,11 @@
 
 `timescale 1 ns / 1 ps
 
-	module vcbuffer_v1_0_S00_AXI #
+	module vfir_v1_0_S00_AXI #
 	(
 		// Users to add parameters here
 
-		parameter integer FREEZE_TIMEOUT_MS = 10,
-		parameter integer AXI_CLOCK_CYCLE_NS = 8,  /* 125 MHz */
-
-		parameter integer BRAM_DATA_WIDTH	     = 32,   /* BRAM data width */
+		parameter integer MAXIMUM_FILTER_LENGTH  = 512,
 
 		// User parameters ends
 		// Do not modify the parameters beyond this line
@@ -16,18 +13,23 @@
 		// Width of S_AXI data bus
 		parameter integer C_S_AXI_DATA_WIDTH	= 32,
 		// Width of S_AXI address bus
-		parameter integer C_S_AXI_ADDR_WIDTH	= 4
+		parameter integer C_S_AXI_ADDR_WIDTH	= 5
 	)
 	(
 		// Users to add ports here
 
-		input wire [BRAM_DATA_WIDTH-1: 0] bram_addr,
+		output wire [C_S_AXI_DATA_WIDTH-1:0] fir_length,  /* FIR Length */
+		output wire [C_S_AXI_DATA_WIDTH-1:0] fir_scale,  /* FIR Scale */
 
-		input wire freezed,
-		input wire refreshed,
+		output wire run_enable,  /* HIGH = Enable */
+		output wire software_rst,  /* HIGH = Reset */
 
-		output wire freeze,
-		output wire software_rst,
+		output wire len_update_trigger,  /* all update, clear data in fir bank, rising edge trigger */
+		output wire coef_update_trigger,  /* coefficient & scale update, will not clear data, rising edge trigger */
+
+		input wire refreshed,  /* HIGH = indicate FIR data line refreshed */
+		input wire len_updated,  /* HIGH = indicate LEN update completed */
+		input wire coef_updated,  /* HIGH = indicate Coefficient update completed */
 
 		// User ports ends
 		// Do not modify the ports beyond this line
@@ -94,29 +96,8 @@
 		input wire  S_AXI_RREADY
 	);
 
-	/* User Registers */
-
 	localparam TRUE = 1'b1,
 	           FALSE = 1'b0;
-
-	localparam FREEZE_TIMER_TIMING_1US_CLOCKS = (1000 / AXI_CLOCK_CYCLE_NS) + 1;
-	localparam FREEZE_TIMER_TIMEOUT_CYCLES = FREEZE_TIMEOUT_MS * 1000;  /* us count */
-
-	reg freeze_reg = FALSE;
-	reg [16: 0] freeze_timer = 16'b0;
-	reg [16: 0] freeze_us_timer = 16'b0;
-
-	reg freeze_timeout = FALSE;
-	reg freeze_timeout_sync = FALSE;
-
-	reg software_rst_reg = FALSE;  /* software reset */
-	reg software_rst_reg_sync = FALSE;
-
-	reg freezed_sync = FALSE;
-	reg refreshed_sync = FALSE;
-
-	assign freeze = freeze_reg;
-	assign software_rst = software_rst_reg;
 
 	// AXI4LITE signals
 	reg [C_S_AXI_ADDR_WIDTH-1 : 0] 	axi_awaddr;
@@ -136,15 +117,19 @@
 	// ADDR_LSB = 2 for 32 bits (n downto 2)
 	// ADDR_LSB = 3 for 64 bits (n downto 3)
 	localparam integer ADDR_LSB = (C_S_AXI_DATA_WIDTH/32) + 1;
-	localparam integer OPT_MEM_ADDR_BITS = 1;
+	localparam integer OPT_MEM_ADDR_BITS = 2;
 	//----------------------------------------------
 	//-- Signals for user logic register space example
 	//------------------------------------------------
-	//-- Number of Slave Registers 4
-	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg0;  /* 00H: Freeze (R/W) */
-	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg1;  /* 04H: Reset  (R/W) */
-	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg2;  /* 08H: Run Status (R), [0]: freezed, [1]: refreshed */
-	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg3;  /* 0CH: Current BRAM Pointer (relative to 00H) (R) */
+	//-- Number of Slave Registers 8
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg0;  /* Reset ([R]/W) */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg1;  /* Update FIR Length ([R]/W) */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg2;  /* Update FIR Coefficient ([R]/W) */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg3;  /* FIR Length (R/W) */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg4;  /* FIR Coefficient Scale (R/W) */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg5;  /* Run Status Control (R/W), [0]: run enable */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg6;  /* Run Status (R), [0] refreshed, [1]: length updated, [2] coefficient updated */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg7;  /* Maximum FIR Length (R) */
 	wire	 slv_reg_rden;
 	wire	 slv_reg_wren;
 	reg [C_S_AXI_DATA_WIDTH-1:0]	 reg_data_out;
@@ -165,6 +150,26 @@
 	// axi_awready is asserted for one S_AXI_ACLK clock cycle when both
 	// S_AXI_AWVALID and S_AXI_WVALID are asserted. axi_awready is
 	// de-asserted when reset is low.
+
+	reg run_enable_reg = FALSE;
+	reg software_rst_reg = FALSE;
+
+	reg software_rst_sync = FALSE;
+
+	reg update_length = FALSE;  /* logic control */
+	reg update_coef = FALSE;  /* logic control */
+	reg update_length_clear_flag = FALSE;  /* logic control */
+	reg update_coef_clear_flag = FALSE;  /* logic control */
+
+	reg len_update_trigger_reg = FALSE;
+	reg coef_update_trigger_reg = FALSE;
+
+	assign len_update_trigger = len_update_trigger_reg;
+	assign coef_update_trigger = coef_update_trigger_reg;
+	assign software_rst = software_rst_reg;
+	assign run_enable = run_enable_reg;
+	assign fir_length = slv_reg3;
+	assign fir_scale = slv_reg4;
 
 	always @( posedge S_AXI_ACLK )
 	begin
@@ -261,66 +266,106 @@
 	      slv_reg1 <= 0;
 	      slv_reg2 <= 0;
 	      slv_reg3 <= 0;
+	      slv_reg4 <= 0;
+	      slv_reg5 <= 0;
+	      slv_reg6 <= 0;
+	      slv_reg7 <= MAXIMUM_FILTER_LENGTH;
 		  software_rst_reg <= FALSE;
+		  update_length <= FALSE;
+		  update_coef <= FALSE;
 	    end 
 	  else begin
 	    if (slv_reg_wren)
-	      begin
+	    begin
 	        case ( axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
-	          2'h0:
-	            for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
-	              if ( S_AXI_WSTRB[byte_index] == 1 ) begin
-	                // Respective byte enables are asserted as per write strobes 
-	                // Slave register 0
-	                slv_reg0[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
-	              end  
-	          2'h1:
+	          3'h0:
+	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
+	            //     // Respective byte enables are asserted as per write strobes 
+	            //     // Slave register 0
+	            //     slv_reg0[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	            //   end  
+				software_rst_reg <= TRUE;
+	          3'h1:
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
 	            //     // Respective byte enables are asserted as per write strobes 
 	            //     // Slave register 1
 	            //     slv_reg1[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
 	            //   end  
-				software_rst_reg <= TRUE;
-	          2'h2:;
+				update_length <= TRUE;
+	          3'h2:
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
 	            //     // Respective byte enables are asserted as per write strobes 
 	            //     // Slave register 2
 	            //     slv_reg2[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
 	            //   end  
-	          2'h3:;
+				update_coef <= TRUE;
+	          3'h3:
+	            for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+	              if ( S_AXI_WSTRB[byte_index] == 1 ) begin
+	                // Respective byte enables are asserted as per write strobes 
+	                // Slave register 3
+	                slv_reg3[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	              end  
+	          3'h4:
+	            for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+	              if ( S_AXI_WSTRB[byte_index] == 1 ) begin
+	                // Respective byte enables are asserted as per write strobes 
+	                // Slave register 4
+	                slv_reg4[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	              end  
+	          3'h5:
+	            for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+	              if ( S_AXI_WSTRB[byte_index] == 1 ) begin
+	                // Respective byte enables are asserted as per write strobes 
+	                // Slave register 5
+	                slv_reg5[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	              end  
+	          3'h6:;
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
 	            //     // Respective byte enables are asserted as per write strobes 
-	            //     // Slave register 3
-	            //     slv_reg3[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	            //     // Slave register 6
+	            //     slv_reg6[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	            //   end  
+	          3'h7:;
+	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
+	            //     // Respective byte enables are asserted as per write strobes 
+	            //     // Slave register 7
+	            //     slv_reg7[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
 	            //   end  
 	          default : begin
-	                      slv_reg0 <= slv_reg0;
+	                    //   slv_reg0 <= slv_reg0;
 	                    //   slv_reg1 <= slv_reg1;
 	                    //   slv_reg2 <= slv_reg2;
-	                    //   slv_reg3 <= slv_reg3;
+	                      slv_reg3 <= slv_reg3;
+	                      slv_reg4 <= slv_reg4;
+	                      slv_reg5 <= slv_reg5;
+	                    //   slv_reg6 <= slv_reg6;
+	                    //   slv_reg7 <= slv_reg7;
 	                    end
 	        endcase
-	      end
-		else begin
-			if (freeze_timeout_sync) slv_reg0 <= 0;  /* timeout, hardware reset */
-			else slv_reg0 <= slv_reg0;
+	    end
 
-			if (software_rst_reg_sync) software_rst_reg <= FALSE;
-			else software_rst_reg <= software_rst_reg;
-		end
+		run_enable_reg <= slv_reg5[0];
+		slv_reg6[0] <= refreshed;
+		slv_reg6[1] <= len_updated;
+		slv_reg6[2] <= coef_updated;
+		slv_reg7 <= MAXIMUM_FILTER_LENGTH;
 
-		if (freezed_sync) slv_reg2[0] <= TRUE;
-		else slv_reg2[0] <= FALSE;
+		if (software_rst_sync) software_rst_reg <= FALSE;
+		else software_rst_reg <= software_rst_reg;
 
-		if (refreshed_sync) slv_reg2[1] <= TRUE;
-		else slv_reg2[1] <= FALSE;
+		if (update_length_clear_flag) update_length <= FALSE;
+		else update_length <= update_length;
 
-		slv_reg3 <= bram_addr;
+		if (update_coef_clear_flag) update_coef <= FALSE;
+		else update_coef <= update_coef;
 
-	  end
+	  	end
 	end    
 
 	// Implement write response logic generation
@@ -425,10 +470,14 @@
 	begin
 	      // Address decoding for reading registers
 	      case ( axi_araddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
-	        2'h0   : reg_data_out <= slv_reg0;
-	        2'h1   : reg_data_out <= slv_reg1;
-	        2'h2   : reg_data_out <= slv_reg2;
-	        2'h3   : reg_data_out <= slv_reg3;
+	        3'h0   : reg_data_out <= slv_reg0;
+	        3'h1   : reg_data_out <= slv_reg1;
+	        3'h2   : reg_data_out <= slv_reg2;
+	        3'h3   : reg_data_out <= slv_reg3;
+	        3'h4   : reg_data_out <= slv_reg4;
+	        3'h5   : reg_data_out <= slv_reg5;
+	        3'h6   : reg_data_out <= slv_reg6;
+	        3'h7   : reg_data_out <= slv_reg7;
 	        default : reg_data_out <= 0;
 	      endcase
 	end
@@ -454,73 +503,177 @@
 
 	// Add user logic here
 
-	/* sync */
+	localparam [3:0] LEN_WAIT_FOR_TRIGGER          = 4'd0,
+					 LEN_WAIT_LAST_UPDATE_COMPLETE = 4'd1,
+					 LEN_TRIGGER_UPDATE            = 4'd2,
+					 LEN_WAIT_UPDATE_START         = 4'd3,
+					 LEN_CLEAR_FLAG                = 4'd4;
 
-	always @( posedge S_AXI_ACLK ) begin
-		if (!S_AXI_ARESETN) begin
-			software_rst_reg_sync <= FALSE;
-			freeze_timeout_sync <= FALSE;
-			freezed_sync <= FALSE;
-			refreshed_sync <= FALSE;
-		end else begin
-			software_rst_reg_sync <= software_rst_reg;
-			freeze_timeout_sync <= freeze_timeout;
-			freezed_sync <= freezed;
-			refreshed_sync <= refreshed;
-		end
+	localparam [3:0] COEF_WAIT_FOR_TRIGGER          = 4'd0,
+					 COEF_WAIT_LAST_UPDATE_COMPLETE = 4'd1,
+					 COEF_TRIGGER_UPDATE            = 4'd2,
+					 COEF_WAIT_UPDATE_START         = 4'd3,
+					 COEF_CLEAR_FLAG                = 4'd4;
+
+	reg [3:0] len_state = LEN_WAIT_FOR_TRIGGER;
+	reg [3:0] coef_state = COEF_WAIT_FOR_TRIGGER;
+
+	/* ------------------------------------------------------------------- */
+	/* ------------------------------ SYNC ------------------------------- */
+	/* ------------------------------------------------------------------- */
+
+	always @(posedge S_AXI_ACLK) begin
+	  	if (S_AXI_ARESETN == 1'b0) begin
+			software_rst_sync <= FALSE;
+		end else begin    
+			software_rst_sync <= software_rst_reg;
+	    end
 	end
 
-	/* freeze */
+	/* -------------------------------------------------------------------- */
+	/* ------------------------ LEN Update Control ------------------------ */
+	/* -------------------------------------------------------------------- */
 
-	always @( posedge S_AXI_ACLK ) begin
-		if (!S_AXI_ARESETN || software_rst_reg) begin
-			freeze_reg <= FALSE;
-		end else begin
+	/* flags */
 
-			/* Freeze reg != 0, start freeze */
-
-			if (slv_reg0 != 0) begin
-				if (freeze_timeout) freeze_reg <= FALSE;
-				else freeze_reg <= TRUE;
-
-			/* Release freeze */
-
-			end else begin
-				freeze_reg <= FALSE;
+	always @(posedge S_AXI_ACLK) begin
+	  	if (S_AXI_ARESETN == 1'b0 || software_rst_reg) begin
+			len_state <= LEN_WAIT_FOR_TRIGGER;
+		end else begin    
+			case (len_state)
+			LEN_WAIT_FOR_TRIGGER: begin
+				if (update_length) len_state <= LEN_WAIT_LAST_UPDATE_COMPLETE;
+				else len_state <= len_state;
 			end
-		end
+			LEN_WAIT_LAST_UPDATE_COMPLETE: begin
+				if (len_updated) len_state <= LEN_TRIGGER_UPDATE;
+				else len_state <= len_state;
+			end
+			LEN_TRIGGER_UPDATE: begin
+				len_state <= LEN_WAIT_UPDATE_START;
+			end
+			LEN_WAIT_UPDATE_START: begin
+				if (len_updated) len_state <= len_state;
+				else len_state <= LEN_CLEAR_FLAG;
+			end
+			LEN_CLEAR_FLAG: begin
+				if (update_length) len_state <= len_state;
+				else len_state <= LEN_WAIT_FOR_TRIGGER;
+			end
+			default: len_state <= LEN_WAIT_FOR_TRIGGER;
+			endcase
+	    end
 	end
 
-	/* ------------------------------------------------------------------------------ */
-	/* ----------------------------------- Timer ------------------------------------ */
-	/* ------------------------------------------------------------------------------ */
+	/* registers */
 
-	/* ms timer */
-
-	always @( posedge S_AXI_ACLK ) begin
-		if (!S_AXI_ARESETN || software_rst_reg) begin
-			freeze_us_timer <= 16'b0;
-			freeze_timer <= 16'b0;
-			freeze_timeout <= FALSE;
+	always @(posedge S_AXI_ACLK) begin
+	  	if (S_AXI_ARESETN == 1'b0 || software_rst_reg) begin
+			update_length_clear_flag <= FALSE;
+			len_update_trigger_reg <= FALSE;
 		end else begin
-			if (freezed_sync) begin
-				if (freeze_us_timer > FREEZE_TIMER_TIMING_1US_CLOCKS) begin
-					freeze_us_timer <= 16'b0;
-					if (!freeze_timeout) freeze_timer <= freeze_timer + 1;
-					else freeze_timer <= freeze_timer;
-				end else begin
-					freeze_us_timer <= freeze_us_timer + 1;
-				end
-			end else begin
-				freeze_us_timer <= 16'b0;
-				freeze_timer <= 16'b0;
+			case (len_state)
+			LEN_WAIT_FOR_TRIGGER: begin
+				update_length_clear_flag <= FALSE;
+				len_update_trigger_reg <= FALSE;
 			end
+			LEN_WAIT_LAST_UPDATE_COMPLETE: begin
+				update_length_clear_flag <= FALSE;
+				len_update_trigger_reg <= FALSE;
+			end
+			LEN_TRIGGER_UPDATE: begin
+				update_length_clear_flag <= FALSE;
+				len_update_trigger_reg <= TRUE;
+			end
+			LEN_WAIT_UPDATE_START: begin
+				update_length_clear_flag <= FALSE;
+				if (len_updated) len_update_trigger_reg <= TRUE;
+				else len_update_trigger_reg <= FALSE;
+			end
+			LEN_CLEAR_FLAG: begin
+				if (update_length) update_length_clear_flag <= TRUE;
+				else update_length_clear_flag <= FALSE;
+				len_update_trigger_reg <= FALSE;
+			end
+			default: begin
+				update_length_clear_flag <= FALSE;
+				len_update_trigger_reg <= FALSE;
+			end
+			endcase
+	    end
+	end
 
-			/* timeout flag */
+	/* --------------------------------------------------------------------- */
+	/* ------------------------ COEF Update Control ------------------------ */
+	/* --------------------------------------------------------------------- */
 
-			if (freeze_timer > FREEZE_TIMER_TIMEOUT_CYCLES) freeze_timeout <= TRUE;
-			else freeze_timeout <= FALSE;
-		end
+	/* flags */
+
+	always @(posedge S_AXI_ACLK) begin
+	  	if (S_AXI_ARESETN == 1'b0 || software_rst_reg) begin
+			coef_state <= COEF_WAIT_FOR_TRIGGER;
+		end else begin
+			case (coef_state)
+			COEF_WAIT_FOR_TRIGGER: begin
+				if (update_coef) coef_state <= COEF_WAIT_LAST_UPDATE_COMPLETE;
+				else coef_state <= coef_state;
+			end
+			COEF_WAIT_LAST_UPDATE_COMPLETE: begin
+				if (coef_updated) coef_state <= COEF_TRIGGER_UPDATE;
+				else coef_state <= coef_state;
+			end
+			COEF_TRIGGER_UPDATE: begin
+				coef_state <= COEF_WAIT_UPDATE_START;
+			end
+			COEF_WAIT_UPDATE_START: begin
+				if (coef_updated) coef_state <= coef_state;
+				else coef_state <= COEF_CLEAR_FLAG;
+			end
+			COEF_CLEAR_FLAG: begin
+				if (update_coef) coef_state <= coef_state;
+				else coef_state <= COEF_WAIT_FOR_TRIGGER;
+			end
+			default: coef_state <= COEF_WAIT_FOR_TRIGGER;
+			endcase
+	    end
+	end
+
+	/* registers */
+
+	always @(posedge S_AXI_ACLK) begin
+	  	if (S_AXI_ARESETN == 1'b0 || software_rst_reg) begin
+			update_coef_clear_flag <= FALSE;
+			coef_update_trigger_reg <= FALSE;
+		end else begin
+			case (coef_state)
+			COEF_WAIT_FOR_TRIGGER: begin
+				update_coef_clear_flag <= FALSE;
+				coef_update_trigger_reg <= FALSE;
+			end
+			COEF_WAIT_LAST_UPDATE_COMPLETE: begin
+				update_coef_clear_flag <= FALSE;
+				coef_update_trigger_reg <= FALSE;
+			end
+			COEF_TRIGGER_UPDATE: begin
+				update_coef_clear_flag <= FALSE;
+				coef_update_trigger_reg <= TRUE;
+			end
+			COEF_WAIT_UPDATE_START: begin
+				update_coef_clear_flag <= FALSE;
+				if (coef_updated) coef_update_trigger_reg <= TRUE;
+				else coef_update_trigger_reg <= FALSE;
+			end
+			COEF_CLEAR_FLAG: begin
+				if (update_coef) update_coef_clear_flag <= TRUE;
+				else update_coef_clear_flag <= FALSE;
+				coef_update_trigger_reg <= FALSE;
+			end
+			default: begin
+				update_coef_clear_flag <= FALSE;
+				coef_update_trigger_reg <= FALSE;
+			end
+			endcase
+	    end
 	end
 
 	// User logic ends

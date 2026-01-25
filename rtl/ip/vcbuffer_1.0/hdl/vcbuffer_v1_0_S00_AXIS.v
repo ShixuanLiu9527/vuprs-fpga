@@ -60,13 +60,23 @@
 		input wire  S_AXIS_TVALID
 	);
 
+	function integer clogb2 (input integer bit_depth);
+	begin
+	    for(clogb2=0; bit_depth>0; clogb2=clogb2+1)
+	    	bit_depth = bit_depth >> 1;
+	end
+	endfunction
+
 	localparam TRUE = 1'b1,
 	           FALSE = 1'b0;
 
 	localparam FRAME_WORD_NUMBER                = 10;  /* Data Header & Data Tailer included */
 	localparam FRAME_WORD_DATA_NUMBER           = FRAME_WORD_NUMBER - 2;   /* Data Header & Data Tailer excluded */
 
-	localparam [2: 0] AXIS_WAIT_FOR_DATA_HEADER = 3'd0,  /* Wait for data header */
+	localparam BRAM_PUSH_POINTER_ADDR_SIZE = clogb2(FRAME_WORD_NUMBER);
+	localparam AXIS_RECEIVE_POINTER_ADDR_SIZE = clogb2(FRAME_WORD_DATA_NUMBER);
+
+	localparam [2: 0] AXIS_WAIT_FOR_DATA_HEADER = 3'd0,  /* 3 bit, Wait for data header */
 	                  AXIS_RECEIVE_DATA         = 3'd1,  /* Receive data */
 					  AXIS_WAIT_FOR_DATA_TAILER = 3'd2,  /* Wait for data tailer */
 					  AXIS_CHECK_FREEZE         = 3'd3,  /* Check freeze flag */
@@ -76,7 +86,7 @@
 	localparam BRAM_POINTER_INCREMENT = BRAM_DATA_WIDTH/8;
 	localparam CIRCULAR_BUFFER_BYTE_SIZE = CIRCULAR_BUFFER_POINTS * FRAME_WORD_NUMBER * 4;
 
-	reg [1: 0] axis_state = AXIS_WAIT_FOR_DATA_HEADER;
+	reg [2: 0] axis_state = AXIS_WAIT_FOR_DATA_HEADER;
 	
 	reg [BRAM_DATA_WIDTH-1: 0] bram_addr_reg;
 	reg [BRAM_DATA_WIDTH-1: 0] bram_din_reg;
@@ -91,9 +101,9 @@
 	reg freezed_reg = FALSE;
 	reg refreshed_reg = FALSE;
 
-	reg [7: 0] received_data_count = 8'd0;
+	reg [AXIS_RECEIVE_POINTER_ADDR_SIZE-1: 0] received_data_count = 0;
 
-	reg [7: 0] bram_pushed_count = 8'd0;
+	reg [BRAM_PUSH_POINTER_ADDR_SIZE-1: 0] bram_pushed_count = 0;
 	
 	reg [C_S_AXIS_TDATA_WIDTH - 1: 0] axis_receive_buffer[0: FRAME_WORD_DATA_NUMBER - 1];
 
@@ -102,6 +112,11 @@
 	assign bram_clk = S_AXIS_ACLK;
 	assign freezed = freezed_reg;
 	assign refreshed = refreshed_reg;
+
+	assign bram_addr = bram_addr_reg;
+	assign bram_din = bram_din_reg;
+	assign bram_we = bram_we_reg;
+	assign bram_en = bram_en_reg;
 
 	`define AXIS_HAND_SHACK  (S_AXIS_TREADY && S_AXIS_TVALID)
 	`define DATA_PUSHED_TO_BRAM (bram_en && (bram_we_reg == BRAM_WE_WRITE))

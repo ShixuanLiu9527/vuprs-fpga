@@ -87,7 +87,8 @@
 		.C_S_AXI_ADDR_WIDTH(C_S00_AXI_ADDR_WIDTH),
 
 		.FREEZE_TIMEOUT_MS(FREEZE_TIMEOUT_MS),
-		.AXI_CLOCK_CYCLE_NS(AXI_CLOCK_CYCLE_NS)
+		.AXI_CLOCK_CYCLE_NS(AXI_CLOCK_CYCLE_NS),
+		.BRAM_DATA_WIDTH(BRAM_DATA_WIDTH)
 	) vcbuffer_v1_0_S00_AXI_inst (
 		.S_AXI_ACLK(s00_axi_aclk),
 		.S_AXI_ARESETN(s00_axi_aresetn),
@@ -117,7 +118,9 @@
 		.software_rst(software_rst),
 
 		.freezed(freezed),
-		.refreshed(refreshed)
+		.refreshed(refreshed),
+
+		.bram_addr(bram_addr)
 	);
 
 // Instantiation of Axi Bus Interface S00_AXIS

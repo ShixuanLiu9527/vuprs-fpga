@@ -3,10 +3,10 @@
 <!--                                                         -->
 <!-- Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.   -->
 
-<Project Version="7" Minor="54" Path="d:/vip/vadc_1.0/vadc_v1_0_project/vadc_v1_0_project.xpr">
+<Project Version="7" Minor="54" Path="d:/vip/vpdelay_1.0/vpdelay_v1_0_project/vpdelay_v1_0_project.xpr">
   <DefaultLaunch Dir="$PRUNDIR"/>
   <Configuration>
-    <Option Name="Id" Val="ad4061ebb90d4a1cb07dfd45436eca20"/>
+    <Option Name="Id" Val="03db4c8a8f6b46bfaa64557354bbfce4"/>
     <Option Name="Part" Val="xc7a100tfgg484-2"/>
     <Option Name="CompiledLibDir" Val="$PCACHEDIR/compile_simlib"/>
     <Option Name="CompiledLibDirXSim" Val=""/>
@@ -35,6 +35,9 @@
     <Option Name="ActiveSimSet" Val="sim_1"/>
     <Option Name="DefaultLib" Val="xil_defaultlib"/>
     <Option Name="ProjectType" Val="Default"/>
+    <Option Name="IPRepoPath" Val="$PPRDIR/../../vfir_1.0"/>
+    <Option Name="IPRepoPath" Val="$PPRDIR/../../vpdelay_1.0"/>
+    <Option Name="IPRepoPath" Val="$PPRDIR/../../vpdelay_1.0"/>
     <Option Name="IPRepoPath" Val="$PPRDIR/../../vcbuffer_1.0"/>
     <Option Name="IPRepoPath" Val="$PPRDIR/../../vcbuffer_1.0"/>
     <Option Name="IPRepoPath" Val="$PPRDIR/../../vadc_1.0"/>
@@ -77,7 +80,7 @@
   <FileSets Version="1" Minor="31">
     <FileSet Name="sources_1" Type="DesignSrcs" RelSrcDir="$PSRCDIR/sources_1" RelGenDir="$PGENDIR/sources_1">
       <Filter Type="Srcs"/>
-      <File Path="$PPRDIR/../src/adc_fifo/adc_fifo.xci">
+      <File Path="$PPRDIR/../hdl/vpdelay_v1_0_M00_AXIS.v">
         <FileInfo>
           <Attr Name="Library" Val=""/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -85,7 +88,7 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../hdl/ad7606.v">
+      <File Path="$PPRDIR/../hdl/vpdelay_v1_0_S00_AXI.v">
         <FileInfo>
           <Attr Name="Library" Val=""/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -93,7 +96,7 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../hdl/vadc_v1_0_M00_AXIS.v">
+      <File Path="$PPRDIR/../hdl/vpdelay_v1_0_S00_AXIS.v">
         <FileInfo>
           <Attr Name="Library" Val=""/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -101,15 +104,7 @@
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../hdl/vadc_v1_0_S00_AXI.v">
-        <FileInfo>
-          <Attr Name="Library" Val=""/>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-      </File>
-      <File Path="$PPRDIR/../hdl/vadc_v1_0.v">
+      <File Path="$PPRDIR/../hdl/vpdelay_v1_0.v">
         <FileInfo>
           <Attr Name="Library" Val=""/>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -122,8 +117,8 @@
       </File>
       <Config>
         <Option Name="DesignMode" Val="RTL"/>
-        <Option Name="TopModule" Val="vadc_v1_0"/>
-        <Option Name="TopRTLFile" Val="$PPRDIR/../hdl/vadc_v1_0.v"/>
+        <Option Name="TopModule" Val="vpdelay_v1_0"/>
+        <Option Name="TopRTLFile" Val="$PPRDIR/../hdl/vpdelay_v1_0.v"/>
       </Config>
     </FileSet>
     <FileSet Name="constrs_1" Type="Constrs" RelSrcDir="$PSRCDIR/constrs_1" RelGenDir="$PGENDIR/constrs_1">
@@ -135,7 +130,7 @@
     <FileSet Name="sim_1" Type="SimulationSrcs" RelSrcDir="$PSRCDIR/sim_1" RelGenDir="$PGENDIR/sim_1">
       <Config>
         <Option Name="DesignMode" Val="RTL"/>
-        <Option Name="TopModule" Val="vadc_v1_0"/>
+        <Option Name="TopModule" Val="vpdelay_v1_0"/>
         <Option Name="TopAutoSet" Val="TRUE"/>
         <Option Name="TransportPathDelay" Val="0"/>
         <Option Name="TransportIntDelay" Val="0"/>
