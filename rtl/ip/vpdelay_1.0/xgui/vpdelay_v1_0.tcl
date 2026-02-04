@@ -15,8 +15,10 @@ proc init_gui { IPINST } {
   set Beamforming_Config [ipgui::add_page $IPINST -name "Beamforming Config"]
   ipgui::add_param $IPINST -name "AXI_CLOCK_CYCLE_NS" -parent ${Beamforming_Config}
   ipgui::add_param $IPINST -name "FREEZE_TIMEOUT_MS" -parent ${Beamforming_Config}
-  ipgui::add_param $IPINST -name "WAVE_VELOCITY_MPS" -parent ${Beamforming_Config}
-  ipgui::add_param $IPINST -name "MAXIMUM_ARRAY_SIZE_MM" -parent ${Beamforming_Config}
+  set WAVE_VELOCITY_MPS [ipgui::add_param $IPINST -name "WAVE_VELOCITY_MPS" -parent ${Beamforming_Config}]
+  set_property tooltip {Wave Velocity (e.g. 346 m/s for sound in the air, unit: m/s)} ${WAVE_VELOCITY_MPS}
+  set MAXIMUM_ARRAY_SIZE_MM [ipgui::add_param $IPINST -name "MAXIMUM_ARRAY_SIZE_MM" -parent ${Beamforming_Config}]
+  set_property tooltip {Maximum Beamformer Array Size (minimum outer ball diameter of the array, unit: mm)} ${MAXIMUM_ARRAY_SIZE_MM}
   ipgui::add_param $IPINST -name "MAXIMUM_SAMPLING_FREQ_HZ" -parent ${Beamforming_Config}
   ipgui::add_param $IPINST -name "FRAME_HEADER" -parent ${Beamforming_Config} -widget comboBox
   ipgui::add_param $IPINST -name "FRAME_TAILER" -parent ${Beamforming_Config} -widget comboBox

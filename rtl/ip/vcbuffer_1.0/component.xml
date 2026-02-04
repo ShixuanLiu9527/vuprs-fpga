@@ -434,6 +434,12 @@
           </spirit:physicalPort>
         </spirit:portMap>
       </spirit:portMaps>
+      <spirit:parameters>
+        <spirit:parameter>
+          <spirit:name>MASTER_TYPE</spirit:name>
+          <spirit:value spirit:id="BUSIFPARAM_VALUE.M00_BRAM_PORT.MASTER_TYPE">BRAM_CTRL</spirit:value>
+        </spirit:parameter>
+      </spirit:parameters>
     </spirit:busInterface>
   </spirit:busInterfaces>
   <spirit:memoryMaps>
@@ -472,7 +478,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>f98e4deb</spirit:value>
+            <spirit:value>1ce55ad9</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -488,7 +494,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>f98e4deb</spirit:value>
+            <spirit:value>1ce55ad9</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -516,7 +522,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>089aeaab</spirit:value>
+            <spirit:value>56dcd9fe</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1141,7 +1147,7 @@
       <spirit:file>
         <spirit:name>hdl/vcbuffer_v1_0.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_3f371dff</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_de756580</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
     <spirit:fileSet>
@@ -1196,7 +1202,7 @@
       <spirit:file>
         <spirit:name>xgui/vcbuffer_v1_0.tcl</spirit:name>
         <spirit:fileType>tclSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_089aeaab</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_56dcd9fe</spirit:userFileType>
         <spirit:userFileType>XGUI_VERSION_2</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
@@ -1280,7 +1286,7 @@
     <spirit:parameter>
       <spirit:name>FREEZE_TIMEOUT_MS</spirit:name>
       <spirit:displayName>Freeze Timeout (unit: ms)</spirit:displayName>
-      <spirit:value spirit:format="long" spirit:resolve="user" spirit:id="PARAM_VALUE.FREEZE_TIMEOUT_MS" spirit:minimum="5" spirit:maximum="100" spirit:rangeType="long">10</spirit:value>
+      <spirit:value spirit:format="long" spirit:resolve="user" spirit:id="PARAM_VALUE.FREEZE_TIMEOUT_MS" spirit:minimum="1" spirit:maximum="60" spirit:rangeType="long">10</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>AXI_CLOCK_CYCLE_NS</spirit:name>
@@ -1301,7 +1307,7 @@
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>CIRCULAR_BUFFER_POINTS</spirit:name>
-      <spirit:displayName>Circular BRAM Buffer Points</spirit:displayName>
+      <spirit:displayName>Circular BRAM Buffer Frame Points</spirit:displayName>
       <spirit:value spirit:format="long" spirit:resolve="user" spirit:id="PARAM_VALUE.CIRCULAR_BUFFER_POINTS" spirit:minimum="128" spirit:maximum="1024" spirit:rangeType="long">512</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
@@ -1325,8 +1331,8 @@
       </xilinx:taxonomies>
       <xilinx:displayName>AXI-Stream BRAM Circular Buffer</xilinx:displayName>
       <xilinx:vendorDisplayName>VUPRS Circular Buffer for BRAM</xilinx:vendorDisplayName>
-      <xilinx:coreRevision>6</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-01-21T08:39:18Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>9</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-02-01T14:53:16Z</xilinx:coreCreationDateTime>
       <xilinx:tags>
         <xilinx:tag xilinx:name="ui.data.coregen.dd@6be2675c_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
         <xilinx:tag xilinx:name="ui.data.coregen.dd@9ee9af9_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
@@ -1435,16 +1441,34 @@
         <xilinx:tag xilinx:name="ui.data.coregen.dd@1d255208_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
         <xilinx:tag xilinx:name="ui.data.coregen.dd@10bccbbd_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
         <xilinx:tag xilinx:name="ui.data.coregen.dd@f5ce5e6_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@5cfeb3a4_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@752a0cc8_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@64b1cc16_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@6cdc9fa9_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@219721b9_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@689648bf_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@192791fe_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@3e31277_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@6306caf9_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@43516e27_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@5a600fb2_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@31771dc3_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@6cb0dac2_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@5b74dc4c_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@7bf0d8a3_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@be006f8_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@6743274_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
+        <xilinx:tag xilinx:name="ui.data.coregen.dd@2a7b560_ARCHIVE_LOCATION">d:/vip/vcbuffer_1.0</xilinx:tag>
       </xilinx:tags>
     </xilinx:coreExtensions>
     <xilinx:packagingInfo>
       <xilinx:xilinxVersion>2020.2</xilinx:xilinxVersion>
-      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="19913949"/>
+      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="399e5a85"/>
       <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="ed1368d5"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="c23fee6c"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="cc677fba"/>
       <xilinx:checksum xilinx:scope="ports" xilinx:value="2f0c3c09"/>
       <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="56466169"/>
-      <xilinx:checksum xilinx:scope="parameters" xilinx:value="d950c3d3"/>
+      <xilinx:checksum xilinx:scope="parameters" xilinx:value="5925b44b"/>
     </xilinx:packagingInfo>
   </spirit:vendorExtensions>
 </spirit:component>

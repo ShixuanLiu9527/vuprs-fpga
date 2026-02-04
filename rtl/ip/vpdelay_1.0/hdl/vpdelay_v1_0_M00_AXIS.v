@@ -68,11 +68,8 @@
 
 	reg software_rst_sync = FALSE;
 
-	reg axis_send_busy_reg = FALSE;
-
 	reg axis_tvalid = FALSE;
 	reg [C_M_AXIS_TDATA_WIDTH-1 : 0] axis_tdata;
-	reg [(C_M_AXIS_TDATA_WIDTH/8)-1 : 0] axis_tstrb;
 	reg axis_tlast = FALSE;
 
 	reg [C_M_AXIS_TDATA_WIDTH-1:0]	data_frame1_sync;
@@ -88,10 +85,10 @@
 
 	assign M_AXIS_TVALID = axis_tvalid;
 	assign M_AXIS_TDATA = axis_tdata;
-	assign M_AXIS_TSTRB = axis_tstrb;
+	assign M_AXIS_TSTRB = {(C_M_AXIS_TDATA_WIDTH/8){1'b1}};;
 	assign M_AXIS_TLAST = axis_tlast;
 
-	assign axis_send_busy = axis_send_busy_reg;
+	assign axis_send_busy = (axis_state != AXIS_WAIT_FOR_TRIGGER);
 
 	`define PRE_DELAY_M00_AXIS_HAND_SHACK (M_AXIS_TREADY && M_AXIS_TVALID)
 
@@ -141,12 +138,10 @@
 			axis_state <= AXIS_WAIT_FOR_TRIGGER;
 		end else begin
 			case (axis_state)
-
 				AXIS_WAIT_FOR_TRIGGER: begin
 					if (trigger_rising_edge) axis_state <= AXIS_SEND_DATA;
 					else axis_state <= axis_state;
 				end
-
 				AXIS_SEND_DATA: begin
 					if (`PRE_DELAY_M00_AXIS_HAND_SHACK) begin
 						if (axis_sent_count >= FRAME_WORD_NUMBER - 1) axis_state <= AXIS_WAIT_FOR_TRIGGER;
@@ -156,11 +151,9 @@
 						else axis_state <= axis_state;
 					end
 				end
-
 				default: begin
 					axis_state <= AXIS_WAIT_FOR_TRIGGER;
 				end
-
 			endcase
 		end
 	end
@@ -169,39 +162,26 @@
 
 	always @(posedge M_AXIS_ACLK) begin
 		if (M_AXIS_ARESETN == 1'b0 || software_rst_sync) begin
-
-			axis_send_busy_reg <= FALSE;
-
+			axis_sent_count <= 0;
 			axis_tdata <= 0;
 			axis_tvalid = FALSE;
-			axis_tstrb = {(C_M_AXIS_TDATA_WIDTH/8){1'b1}};
 			axis_tlast = FALSE;
-
 		end else begin
-
-			axis_tstrb = {(C_M_AXIS_TDATA_WIDTH/8){1'b1}};
 			axis_tlast = FALSE;
-
 			case (axis_state)
-
 				AXIS_WAIT_FOR_TRIGGER: begin
 					axis_sent_count <= 0;
 					if (trigger_rising_edge) begin
-						axis_send_busy_reg <= TRUE;
 						axis_tvalid = TRUE;
 						axis_tdata <= FRAME_HEADER;  /* ready to send Frame Header */
 					end else begin
-						axis_send_busy_reg <= FALSE;
 						axis_tvalid = FALSE;
 						axis_tdata <= axis_tdata;
 					end
 				end
-
 				AXIS_SEND_DATA: begin
 					if (`PRE_DELAY_M00_AXIS_HAND_SHACK) begin
-
 						axis_sent_count <= axis_sent_count + 1;
-
 						case (axis_sent_count)
 							8'd0: axis_tdata <= data_frame1_sync;
 							8'd1: axis_tdata <= data_frame2_sync;
@@ -215,32 +195,18 @@
 							8'd9: axis_tdata <= 0;
 							default: axis_tdata <= 0;
 						endcase
-
-						if (axis_sent_count >= FRAME_WORD_NUMBER - 1) begin
-							axis_send_busy_reg <= FALSE;
-							axis_tvalid = FALSE;
-						end else begin
-							axis_send_busy_reg <= TRUE;
-							axis_tvalid = TRUE;
-						end
-
+						if (axis_sent_count >= FRAME_WORD_NUMBER - 1) axis_tvalid = FALSE;
+						else axis_tvalid = TRUE;
 					end else begin
-						if (axis_sent_count >= FRAME_WORD_NUMBER) begin
-							axis_send_busy_reg <= FALSE;
-							axis_tvalid = FALSE;
-						end else begin
-							axis_send_busy_reg <= TRUE;
-							axis_tvalid = TRUE;
-						end
+						if (axis_sent_count >= FRAME_WORD_NUMBER) axis_tvalid = FALSE;
+						else axis_tvalid = TRUE;
 					end
 				end
-
 				default: begin
-					axis_send_busy_reg <= FALSE;
-					axis_tvalid = FALSE;
+					axis_sent_count <= 0;
 					axis_tdata <= 0;
+					axis_tvalid = FALSE;
 				end
-
 			endcase
 		end
 	end

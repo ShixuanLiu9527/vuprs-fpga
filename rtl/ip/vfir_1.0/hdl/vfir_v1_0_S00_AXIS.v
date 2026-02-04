@@ -210,7 +210,10 @@
 
 	reg signed [C_S_AXIS_TDATA_WIDTH-1:0] fir_output_reg = 0;  /* fir_output */
 
+	reg signed [ADC_DATA_WIDTH-1:0] fir_data_raw [ADC_CHANNELS-1:0];  /* current fir data */
 	reg signed [ADC_DATA_WIDTH-1:0] fir_data [ADC_CHANNELS-1:0];  /* current fir data */
+
+	reg signed [BRAM_DATA_WIDTH-1:0] fir_coef_raw [ADC_CHANNELS-1:0];  /* current fir coef */
 	reg signed [BRAM_DATA_WIDTH-1:0] fir_coef [ADC_CHANNELS-1:0];  /* current fir coef */
 
 	reg signed [MUL_RESULT_BIT_NUM-1:0] fir_mul_result_stage0 [ADC_CHANNELS-1:0];  /* stage 0, 16 */
@@ -222,6 +225,7 @@
 	reg signed [MUL_RESULT_BIT_NUM-1:0] fir_raw_output = 0;  /* stage 5, output */
 
 	reg fir_stage01_complete_flag = FALSE;  /* TRUE = stage 0.1 complete */
+	reg fir_stage_latency_complete_flag = FALSE; /* TRUE = stage 0 complete */
 	reg fir_stage02_complete_flag = FALSE;  /* TRUE = stage 0.2 complete */
 	reg fir_stage1_complete_flag = FALSE;  /* TRUE = stage 1 complete */
 	reg fir_stage2_complete_flag = FALSE;  /* TRUE = stage 2 complete */
@@ -890,6 +894,8 @@
 			for (i = 0; i < ADC_CHANNELS; i = i + 1) begin
 				fir_data[i] <= 0;
 				fir_coef[i] <= 0;
+				fir_data_raw[i] <= 0;
+				fir_coef_raw[i] <= 0;
 			end
 			for (i = 0; i < ADC_CHANNELS; i = i + 1) fir_mul_result_stage0[i] <= 0;
 			for (i = 0; i < ADC_CHANNELS; i = i + 1) fir_mul_result_stage1[i] <= 0;
@@ -901,6 +907,7 @@
 			fir_raw_output <= 0;
 			/* Flags */
 			fir_stage01_complete_flag <= FALSE;
+			fir_stage_latency_complete_flag <= FALSE;
 			fir_stage02_complete_flag <= FALSE;
 			fir_stage1_complete_flag <= FALSE;
 			fir_stage2_complete_flag <= FALSE;
@@ -926,39 +933,39 @@
 
 					/* Read data & coef from FIR line */
 
-					fir_data[0]  <= fir_data_line_ch1 [fir_data_calculate_pointer];
-					fir_data[1]  <= fir_data_line_ch2 [fir_data_calculate_pointer];
-					fir_data[2]  <= fir_data_line_ch3 [fir_data_calculate_pointer];
-					fir_data[3]  <= fir_data_line_ch4 [fir_data_calculate_pointer];
-					fir_data[4]  <= fir_data_line_ch5 [fir_data_calculate_pointer];
-					fir_data[5]  <= fir_data_line_ch6 [fir_data_calculate_pointer];
-					fir_data[6]  <= fir_data_line_ch7 [fir_data_calculate_pointer];
-					fir_data[7]  <= fir_data_line_ch8 [fir_data_calculate_pointer];
-					fir_data[8]  <= fir_data_line_ch9 [fir_data_calculate_pointer];
-					fir_data[9]  <= fir_data_line_ch10[fir_data_calculate_pointer];
-					fir_data[10] <= fir_data_line_ch11[fir_data_calculate_pointer];
-					fir_data[11] <= fir_data_line_ch12[fir_data_calculate_pointer];
-					fir_data[12] <= fir_data_line_ch13[fir_data_calculate_pointer];
-					fir_data[13] <= fir_data_line_ch14[fir_data_calculate_pointer];
-					fir_data[14] <= fir_data_line_ch15[fir_data_calculate_pointer];
-					fir_data[15] <= fir_data_line_ch16[fir_data_calculate_pointer];
+					fir_data_raw[0]  <= fir_data_line_ch1 [fir_data_calculate_pointer];
+					fir_data_raw[1]  <= fir_data_line_ch2 [fir_data_calculate_pointer];
+					fir_data_raw[2]  <= fir_data_line_ch3 [fir_data_calculate_pointer];
+					fir_data_raw[3]  <= fir_data_line_ch4 [fir_data_calculate_pointer];
+					fir_data_raw[4]  <= fir_data_line_ch5 [fir_data_calculate_pointer];
+					fir_data_raw[5]  <= fir_data_line_ch6 [fir_data_calculate_pointer];
+					fir_data_raw[6]  <= fir_data_line_ch7 [fir_data_calculate_pointer];
+					fir_data_raw[7]  <= fir_data_line_ch8 [fir_data_calculate_pointer];
+					fir_data_raw[8]  <= fir_data_line_ch9 [fir_data_calculate_pointer];
+					fir_data_raw[9]  <= fir_data_line_ch10[fir_data_calculate_pointer];
+					fir_data_raw[10] <= fir_data_line_ch11[fir_data_calculate_pointer];
+					fir_data_raw[11] <= fir_data_line_ch12[fir_data_calculate_pointer];
+					fir_data_raw[12] <= fir_data_line_ch13[fir_data_calculate_pointer];
+					fir_data_raw[13] <= fir_data_line_ch14[fir_data_calculate_pointer];
+					fir_data_raw[14] <= fir_data_line_ch15[fir_data_calculate_pointer];
+					fir_data_raw[15] <= fir_data_line_ch16[fir_data_calculate_pointer];
 
-					fir_coef[0]  <= fir_coef_line_ch1 [fir_data_calculate_pointer];
-					fir_coef[1]  <= fir_coef_line_ch2 [fir_data_calculate_pointer];
-					fir_coef[2]  <= fir_coef_line_ch3 [fir_data_calculate_pointer];
-					fir_coef[3]  <= fir_coef_line_ch4 [fir_data_calculate_pointer];
-					fir_coef[4]  <= fir_coef_line_ch5 [fir_data_calculate_pointer];
-					fir_coef[5]  <= fir_coef_line_ch6 [fir_data_calculate_pointer];
-					fir_coef[6]  <= fir_coef_line_ch7 [fir_data_calculate_pointer];
-					fir_coef[7]  <= fir_coef_line_ch8 [fir_data_calculate_pointer];
-					fir_coef[8]  <= fir_coef_line_ch9 [fir_data_calculate_pointer];
-					fir_coef[9]  <= fir_coef_line_ch10[fir_data_calculate_pointer];
-					fir_coef[10] <= fir_coef_line_ch11[fir_data_calculate_pointer];
-					fir_coef[11] <= fir_coef_line_ch12[fir_data_calculate_pointer];
-					fir_coef[12] <= fir_coef_line_ch13[fir_data_calculate_pointer];
-					fir_coef[13] <= fir_coef_line_ch14[fir_data_calculate_pointer];
-					fir_coef[14] <= fir_coef_line_ch15[fir_data_calculate_pointer];
-					fir_coef[15] <= fir_coef_line_ch16[fir_data_calculate_pointer];
+					fir_coef_raw[0]  <= fir_coef_line_ch1 [fir_data_calculate_pointer];
+					fir_coef_raw[1]  <= fir_coef_line_ch2 [fir_data_calculate_pointer];
+					fir_coef_raw[2]  <= fir_coef_line_ch3 [fir_data_calculate_pointer];
+					fir_coef_raw[3]  <= fir_coef_line_ch4 [fir_data_calculate_pointer];
+					fir_coef_raw[4]  <= fir_coef_line_ch5 [fir_data_calculate_pointer];
+					fir_coef_raw[5]  <= fir_coef_line_ch6 [fir_data_calculate_pointer];
+					fir_coef_raw[6]  <= fir_coef_line_ch7 [fir_data_calculate_pointer];
+					fir_coef_raw[7]  <= fir_coef_line_ch8 [fir_data_calculate_pointer];
+					fir_coef_raw[8]  <= fir_coef_line_ch9 [fir_data_calculate_pointer];
+					fir_coef_raw[9]  <= fir_coef_line_ch10[fir_data_calculate_pointer];
+					fir_coef_raw[10] <= fir_coef_line_ch11[fir_data_calculate_pointer];
+					fir_coef_raw[11] <= fir_coef_line_ch12[fir_data_calculate_pointer];
+					fir_coef_raw[12] <= fir_coef_line_ch13[fir_data_calculate_pointer];
+					fir_coef_raw[13] <= fir_coef_line_ch14[fir_data_calculate_pointer];
+					fir_coef_raw[14] <= fir_coef_line_ch15[fir_data_calculate_pointer];
+					fir_coef_raw[15] <= fir_coef_line_ch16[fir_data_calculate_pointer];
 
 					fir_stage01_complete_flag <= FALSE;
 
@@ -966,6 +973,8 @@
 					for (i = 0; i < ADC_CHANNELS; i = i + 1) begin
 						fir_data[i] <= 0;
 						fir_coef[i] <= 0;
+						fir_data_raw[i] <= 0;
+						fir_coef_raw[i] <= 0;
 					end
 					fir_data_calculate_pointer <= fir_data_calculate_pointer;
 					fir_coef_calculate_pointer <= fir_coef_calculate_pointer;
@@ -975,6 +984,10 @@
 
 				/* pipeline stages */
 
+				for (i = 0; i < ADC_CHANNELS; i = i + 1) begin
+					fir_data[i] <= fir_data_raw[i];
+					fir_coef[i] <= fir_coef_raw[i];
+				end
 				for (i = 0; i < ADC_CHANNELS; i = i + 1) fir_mul_result_stage0[i] <= fir_data[i] * fir_coef[i];
 				for (i = 0; i < ADC_CHANNELS; i = i + 1) fir_mul_result_stage1[i] <= fir_mul_result_stage0[i] >>> 30;
 				for (i = 0; i < ADC_CHANNELS/2; i = i + 1) fir_mul_result_stage2[i] <= fir_mul_result_stage1[2*i] + fir_mul_result_stage1[2*i+1];
@@ -989,7 +1002,8 @@
 
 				/* complete flags */
 
-				fir_stage02_complete_flag <= fir_stage01_complete_flag;
+				fir_stage_latency_complete_flag <= fir_stage01_complete_flag;
+				fir_stage02_complete_flag <= fir_stage_latency_complete_flag;
 				fir_stage1_complete_flag <= fir_stage02_complete_flag;
 				fir_stage2_complete_flag <= fir_stage1_complete_flag;
 				fir_stage3_complete_flag <= fir_stage2_complete_flag;
@@ -1004,6 +1018,7 @@
 				fir_raw_output <= 0;
 				/* Flags */
 				fir_stage01_complete_flag <= FALSE;
+				fir_stage_latency_complete_flag <= FALSE;
 				fir_stage02_complete_flag <= FALSE;
 				fir_stage1_complete_flag <= FALSE;
 				fir_stage2_complete_flag <= FALSE;

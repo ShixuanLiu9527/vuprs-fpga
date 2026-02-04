@@ -80,6 +80,7 @@
 	wire software_rst;
 	wire freezed;
 	wire refreshed;
+	wire [BRAM_DATA_WIDTH-1: 0] newest_bram_addr;
 
 // Instantiation of Axi Bus Interface S00_AXI
 	vcbuffer_v1_0_S00_AXI # ( 
@@ -120,7 +121,7 @@
 		.freezed(freezed),
 		.refreshed(refreshed),
 
-		.bram_addr(bram_addr)
+		.newest_bram_addr(newest_bram_addr)
 	);
 
 // Instantiation of Axi Bus Interface S00_AXIS
@@ -159,7 +160,8 @@
 		.freeze(freeze),
 		.software_rst(software_rst),
 		.freezed(freezed),
-		.refreshed(refreshed)
+		.refreshed(refreshed),
+		.newest_bram_addr(newest_bram_addr)
 	);
 
 	// Add user logic here

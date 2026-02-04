@@ -5,18 +5,18 @@
 
 	module vadc_v1_0_M00_AXIS #
 	(
-		parameter integer USR_CLK_CYCLE_NS   = 20,            /* unit: ns, clock cycle of [adc_clk] (e.g. 20 ns for 50 MHz) */
-              		  T_CYCLE_NS         = 5000,              /* unit: ns, t_cycle of AD7606 (refer to data sheet) */
-          	  		  T_RESET_NS         = 50,                /* unit: ns, t_reset of AD7606 (refer to data sheet) */
-          	  		  T_CONV_MIN_NS      = 3450,              /* unit: ns, min t_conv of AD7606 (refer to data sheet) */
-          	  		  T_CONV_MAX_NS      = 4150,              /* unit: ns, max t_conv of AD7606 (refer to data sheet) */
-          	  		  T1_NS              = 40,                /* unit: ns, t1 of AD7606 (refer to data sheet) */
-          	  		  T2_NS              = 25,                /* unit: ns, t2 of AD7606 (refer to data sheet) */
-          	  		  T10_NS             = 25,                /* unit: ns, t10 of AD7606 (refer to data sheet) */
-          	  		  T11_NS             = 15,                /* unit: ns, t11 of AD7606 (refer to data sheet) */
-          	  		  T14_NS             = 25,                /* unit: ns, t14 of AD7606 (refer to data sheet) */
-          	  		  T15_NS             = 6,                 /* unit: ns, t15 of AD7606 (refer to data sheet) */
-          	  		  T26_NS             = 25,                /* unit: ns, t15 of AD7606 (refer to data sheet) */
+		parameter integer USR_CLK_CYCLE_NS  = 20,   /* unit: ns, clock cycle of [adc_clk] (e.g. 20 ns for 50 MHz) */
+              		  T_CYCLE_NS            = 5000, /* unit: ns, t_cycle of AD7606 (refer to data sheet) */
+          	  		  T_RESET_NS            = 50,   /* unit: ns, t_reset of AD7606 (refer to data sheet) */
+          	  		  T_CONV_MIN_NS         = 3450, /* unit: ns, min t_conv of AD7606 (refer to data sheet) */
+          	  		  T_CONV_MAX_NS         = 4150, /* unit: ns, max t_conv of AD7606 (refer to data sheet) */
+          	  		  T1_NS                 = 40,   /* unit: ns, t1 of AD7606 (refer to data sheet) */
+          	  		  T2_NS                 = 25,   /* unit: ns, t2 of AD7606 (refer to data sheet) */
+          	  		  T10_NS                = 25,   /* unit: ns, t10 of AD7606 (refer to data sheet) */
+          	  		  T11_NS                = 15,   /* unit: ns, t11 of AD7606 (refer to data sheet) */
+          	  		  T14_NS                = 25,   /* unit: ns, t14 of AD7606 (refer to data sheet) */
+          	  		  T15_NS                = 6,    /* unit: ns, t15 of AD7606 (refer to data sheet) */
+          	  		  T26_NS                = 25,   /* unit: ns, t15 of AD7606 (refer to data sheet) */
 
 		parameter integer CONTROL_REGISTER_WIDTH = 32,        /* control register width */
 
@@ -120,20 +120,18 @@
 		input wire                                      M_AXIS_TREADY
 	);
 	
-	// function called clogb2 that returns an integer which has the
-	// value of the ceiling of the log base 2.
-	function integer clogb2 (input integer bit_depth);                                   
-	  begin                                                                              
-	    for(clogb2=0; bit_depth>0; clogb2=clogb2+1)                                      
-	      bit_depth = bit_depth >> 1;                                                    
-	  end                                                                                
+	function integer clogb2 (input integer bit_depth);
+		begin
+	    	for(clogb2=0; bit_depth>0; clogb2=clogb2+1)
+	      		bit_depth = bit_depth >> 1;
+	  	end
 	endfunction
-	                                                                                     
+
 	// WAIT_COUNT_BITS is the width of the wait counter.                                 
 	localparam integer BUFFER_POINTER_BITS = clogb2(C_M_AXIS_BUFFER_SIZE) + 3;
-	                                                                                     
+
 	// BIT_NUM gives the minimum number of bits needed to address 'depth' size of FIFO.  
-	localparam BIT_NUM  = CONTROL_REGISTER_WIDTH + 1; 
+	localparam BIT_NUM  = CONTROL_REGISTER_WIDTH + 1;
 
 	localparam FIFO_RESET_CLOCK_COUNT = 10;
 	localparam FIFO_RESET_CLOCK_COUNT_2 = 65;
@@ -215,7 +213,7 @@
 
 	wire [C_M_AXIS_TDATA_WIDTH - 1: 0] current_fifo_read_data;
 
-	reg [64 - 1: 0] current_sampling_data_points;
+	reg [63: 0] current_sampling_data_points;
 
 	reg one_frame_sampling_trigger_sync1;
 	reg one_frame_sampling_trigger_sync2;

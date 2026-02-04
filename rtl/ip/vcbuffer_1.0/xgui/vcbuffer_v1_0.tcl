@@ -14,7 +14,8 @@ proc init_gui { IPINST } {
   ipgui::add_param $IPINST -name "FREEZE_TIMEOUT_MS" -parent ${Buffer_Config}
   ipgui::add_param $IPINST -name "AXI_CLOCK_CYCLE_NS" -parent ${Buffer_Config}
   ipgui::add_param $IPINST -name "BRAM_DATA_WIDTH" -parent ${Buffer_Config}
-  ipgui::add_param $IPINST -name "CIRCULAR_BUFFER_POINTS" -parent ${Buffer_Config}
+  set CIRCULAR_BUFFER_POINTS [ipgui::add_param $IPINST -name "CIRCULAR_BUFFER_POINTS" -parent ${Buffer_Config}]
+  set_property tooltip {Circular BRAM Buffer Frame Points (BRAM size must greater than this x 40 bytes)} ${CIRCULAR_BUFFER_POINTS}
   ipgui::add_param $IPINST -name "FRAME_HEADER" -parent ${Buffer_Config} -widget comboBox
   ipgui::add_param $IPINST -name "FRAME_TAILER" -parent ${Buffer_Config} -widget comboBox
 

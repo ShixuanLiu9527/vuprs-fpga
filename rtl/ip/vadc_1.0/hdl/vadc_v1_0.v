@@ -242,7 +242,7 @@
 		.M_AXIS_TDATA(m00_axis_tdata),
 		.M_AXIS_TSTRB(m00_axis_tstrb),
 		.M_AXIS_TLAST(m00_axis_tlast),
-		.M_AXIS_TREADY(m00_axis_tready),
+		.M_AXIS_TREADY(m00_axis_tready)
 	);
 
 	// Add user logic here

@@ -344,12 +344,13 @@
 	                slv_reg7[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
 	              end  
 	          4'h8:
-	            for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
-	              if ( S_AXI_WSTRB[byte_index] == 1 ) begin
-	                // Respective byte enables are asserted as per write strobes 
-	                // Slave register 8
-	                slv_reg8[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
-	              end  
+	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
+	            //     // Respective byte enables are asserted as per write strobes 
+	            //     // Slave register 8
+	            //     slv_reg8[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	            //   end  
+				slv_reg8[0] <= TRUE;
 	          4'h9:
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
@@ -391,8 +392,8 @@
 
 			/* freeze timeout */
 
-			if (freeze_timeout_sync) slv_reg8 <= 0;  /* timeout, hardware reset freeeze */
-			else slv_reg8 <= slv_reg8;
+			if (freeze_timeout_sync) slv_reg8[0] <= FALSE;  /* timeout, hardware reset freeeze */
+			else slv_reg8[0] <= slv_reg8[0];
 
 			/* software reset hardware control */
 
@@ -588,7 +589,7 @@
 
 			/* Freeze reg != 0, start freeze */
 
-			if (slv_reg8 != 0) begin
+			if (slv_reg8[0]) begin
 				if (freeze_timeout) freeze_reg <= FALSE;
 				else freeze_reg <= TRUE;
 
