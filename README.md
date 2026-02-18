@@ -4,17 +4,27 @@
 
 ## VIVADO Block Design
 
-<img src="./docs/image/block_design.png" alt="bd" style="width:600px; height:auto;" /> 
+<div align="center">
+    <img src="./docs/image/fpga_structure.png" alt="bd" style="width:1000px; height:auto;" /> 
+</div>
+
+<div align="center">
+    <img src="./docs/image/block_design.png" alt="bd" style="width:1000px; height:auto;" /> 
+</div>
 
 [查看`Block Design`详细设计](./docs/vbd.pdf)
 
 ## AXI 总线地址分配
 
-<img src="./docs/image/addr.png" alt="addr" style="width:600px; height:auto;" /> 
+<div align="center">
+    <img src="./docs/image/addr.png" alt="addr" style="width:600px; height:auto;" /> 
+</div>
 
 ## `FPGA` 侧硬件时域宽带 `FIR` 滤波器波束形成器算法框图
 
-<img src="./docs/image/fir_filter_bank.png" alt="algorithm" style="width:600px; height:auto;" />
+<div align="center">
+    <img src="./docs/image/fir_filter_bank.png" alt="algorithm" style="width:1000px; height:auto;" />
+</div>
 
 ## 主要 IP 核寄存器配置与使用说明
 
