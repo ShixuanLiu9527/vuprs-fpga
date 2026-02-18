@@ -108,9 +108,11 @@
 	
 	reg [C_S_AXIS_TDATA_WIDTH - 1: 0] axis_receive_buffer[0: FRAME_WORD_DATA_NUMBER - 1];
 
-	assign S_AXIS_TREADY = (axis_state == AXIS_WAIT_FOR_DATA_HEADER || 
-	                        axis_state == AXIS_RECEIVE_DATA || 
-							axis_state == AXIS_WAIT_FOR_DATA_TAILER);
+	// assign S_AXIS_TREADY = (axis_state == AXIS_WAIT_FOR_DATA_HEADER || 
+	//                         axis_state == AXIS_RECEIVE_DATA || 
+	// 						axis_state == AXIS_WAIT_FOR_DATA_TAILER);
+
+	assign S_AXIS_TREADY = TRUE;  /* always be TRUE */
 
 	assign bram_clk = S_AXIS_ACLK;
 	assign freezed = freezed_reg;

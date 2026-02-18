@@ -99,12 +99,12 @@
 	localparam TRUE = 1'b1,
 	           FALSE = 1'b0;
 
-	localparam FREEZE_TIMER_TIMING_1US_CLOCKS = (1000 / AXI_CLOCK_CYCLE_NS) + 1;
-	localparam FREEZE_TIMER_TIMEOUT_CYCLES = FREEZE_TIMEOUT_MS * 1000;  /* us count */
+	localparam FREEZE_TIMER_TIMING_1MS_CLOCKS = (1000_000 / AXI_CLOCK_CYCLE_NS) + 1;
+	localparam FREEZE_TIMER_TIMEOUT_CYCLES = FREEZE_TIMEOUT_MS;  /* us count */
 
 	reg freeze_reg = FALSE;
-	reg [15: 0] freeze_timer = 16'b0;
-	reg [15: 0] freeze_us_timer = 16'b0;
+	reg [15: 0] freeze_timer = 0;
+	reg [23: 0] freeze_1ms_timer = 0;
 
 	reg freeze_timeout = FALSE;
 	reg freeze_timeout_sync = FALSE;
@@ -267,14 +267,13 @@
 	    if (slv_reg_wren)
 	      begin
 	        case ( axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
-	          2'h0:
-	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
-	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
-	            //     // Respective byte enables are asserted as per write strobes 
-	            //     // Slave register 0
-	            //     slv_reg0[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
-	            //   end  
-				slv_reg0[0] <= TRUE;
+	          2'h0: 
+	            for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
+	              if ( S_AXI_WSTRB[byte_index] == 1 ) begin
+	                // Respective byte enables are asserted as per write strobes 
+	                // Slave register 0
+	                slv_reg0[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
+	              end  
 	          2'h1:
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
@@ -306,7 +305,7 @@
 	        endcase
 	      end
 		else begin
-			if (freeze_timeout_sync) slv_reg0[0] <= 0;  /* timeout, hardware reset */
+			if (freeze_timeout_sync) slv_reg0[0] <= FALSE;  /* timeout, hardware reset */
 			else slv_reg0[0] <= slv_reg0[0];
 
 			if (software_rst_reg_sync) software_rst_reg <= FALSE;
@@ -500,21 +499,21 @@
 
 	always @( posedge S_AXI_ACLK ) begin
 		if (!S_AXI_ARESETN || software_rst_reg) begin
-			freeze_us_timer <= 16'b0;
-			freeze_timer <= 16'b0;
+			freeze_1ms_timer <= 0;
+			freeze_timer <= 0;
 			freeze_timeout <= FALSE;
 		end else begin
 			if (freezed_sync) begin
-				if (freeze_us_timer > FREEZE_TIMER_TIMING_1US_CLOCKS) begin
-					freeze_us_timer <= 16'b0;
+				if (freeze_1ms_timer > FREEZE_TIMER_TIMING_1MS_CLOCKS) begin
+					freeze_1ms_timer <= 0;
 					if (!freeze_timeout) freeze_timer <= freeze_timer + 1;
 					else freeze_timer <= freeze_timer;
 				end else begin
-					freeze_us_timer <= freeze_us_timer + 1;
+					freeze_1ms_timer <= freeze_1ms_timer + 1;
 				end
 			end else begin
-				freeze_us_timer <= 16'b0;
-				freeze_timer <= 16'b0;
+				freeze_1ms_timer <= 0;
+				freeze_timer <= 0;
 			end
 
 			/* timeout flag */

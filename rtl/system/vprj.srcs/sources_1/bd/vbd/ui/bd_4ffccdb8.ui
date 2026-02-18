@@ -1,0 +1,96 @@
+{
+   "ActiveEmotionalView":"Default View",
+   "Default View_ScaleFactor":"1.0",
+   "Default View_TopLeft":"465,756",
+   "ExpandedHierarchyInLayout":"",
+   "PinnedBlocks":"",
+   "guistr":"# # String gsaved with Nlview 7.0r6  2020-01-29 bk=1.5227 VDI=41 GEI=36 GUI=JA:10.0 non-TLS
+#  -string -flagsOSRD
+preplace port ddr3 -pg 1 -lvl 10 -x 3210 -y 350 -defaultsOSRD
+preplace port pcie_ref -pg 1 -lvl 0 -x 0 -y 570 -defaultsOSRD
+preplace port pcie_mgt -pg 1 -lvl 10 -x 3210 -y 960 -defaultsOSRD
+preplace port adc_a -pg 1 -lvl 10 -x 3210 -y 100 -defaultsOSRD
+preplace port adc_b -pg 1 -lvl 10 -x 3210 -y 120 -defaultsOSRD
+preplace port sys_rst_n -pg 1 -lvl 0 -x 0 -y 640 -defaultsOSRD
+preplace port pcie_lnk_up -pg 1 -lvl 10 -x 3210 -y 800 -defaultsOSRD
+preplace port adc_clk_in -pg 1 -lvl 0 -x 0 -y 110 -defaultsOSRD
+preplace port adc_card_present_detect -pg 1 -lvl 0 -x 0 -y 90 -defaultsOSRD
+preplace port fpga_sampling_led -pg 1 -lvl 10 -x 3210 -y 140 -defaultsOSRD
+preplace port fpga_adc_card_present_led -pg 1 -lvl 10 -x 3210 -y 160 -defaultsOSRD
+preplace inst axis_broadcaster_0 -pg 1 -lvl 2 -x 500 -y 340 -defaultsOSRD
+preplace inst vpdelay -pg 1 -lvl 4 -x 1220 -y 590 -defaultsOSRD
+preplace inst xdma -pg 1 -lvl 2 -x 500 -y 580 -defaultsOSRD
+preplace inst axis_data_fifo_1 -pg 1 -lvl 3 -x 830 -y 180 -defaultsOSRD
+preplace inst axis_data_fifo_2 -pg 1 -lvl 3 -x 830 -y 350 -defaultsOSRD
+preplace inst vcbuf_bram -pg 1 -lvl 9 -x 3090 -y 1030 -defaultsOSRD
+preplace inst vcbuf_bram_ctrl -pg 1 -lvl 8 -x 2770 -y 880 -defaultsOSRD
+preplace inst fir_bram -pg 1 -lvl 9 -x 3090 -y 590 -defaultsOSRD
+preplace inst fir_bram_ctrl -pg 1 -lvl 8 -x 2770 -y 550 -defaultsOSRD
+preplace inst axi_dma -pg 1 -lvl 6 -x 1930 -y 620 -defaultsOSRD
+preplace inst ddr_mig -pg 1 -lvl 8 -x 2770 -y 390 -defaultsOSRD
+preplace inst sg_bram -pg 1 -lvl 9 -x 3090 -y 710 -defaultsOSRD
+preplace inst sg_bram_ctrl_0 -pg 1 -lvl 7 -x 2310 -y 770 -defaultsOSRD
+preplace inst sg_bram_ctrl_1 -pg 1 -lvl 8 -x 2770 -y 720 -defaultsOSRD
+preplace inst util_ds_buf_0 -pg 1 -lvl 1 -x 170 -y 570 -defaultsOSRD
+preplace inst axi_interconnect_0 -pg 1 -lvl 3 -x 830 -y 650 -defaultsOSRD
+preplace inst smartconnect_0 -pg 1 -lvl 7 -x 2310 -y 590 -defaultsOSRD
+preplace inst clk_wiz_0 -pg 1 -lvl 7 -x 2310 -y 170 -defaultsOSRD
+preplace inst proc_sys_reset_0 -pg 1 -lvl 7 -x 2310 -y 380 -defaultsOSRD
+preplace inst vadc -pg 1 -lvl 8 -x 2770 -y 130 -defaultsOSRD
+preplace inst vfir -pg 1 -lvl 5 -x 1560 -y 640 -defaultsOSRD
+preplace inst vcbuf -pg 1 -lvl 4 -x 1220 -y 960 -defaultsOSRD
+preplace netloc reset_rtl_0_1 1 0 7 NJ 640 320 250 660J 270 990J 160 NJ 160 NJ 160 NJ
+preplace netloc util_ds_buf_0_IBUF_OUT 1 1 1 NJ 560
+preplace netloc xdma_0_user_lnk_up 1 2 8 660J 850 NJ 850 NJ 850 1720J 950 2120J 850 2580J 640 2970J 800 NJ
+preplace netloc clk_in1_0_1 1 0 7 20J 100 NJ 100 NJ 100 NJ 100 NJ 100 NJ 100 2140J
+preplace netloc clk_wiz_0_clk_out1 1 7 1 2550 150n
+preplace netloc clk_wiz_0_clk_out2 1 7 1 2540 120n
+preplace netloc clk_wiz_0_locked 1 7 1 2580 100n
+preplace netloc proc_sys_reset_0_peripheral_aresetn 1 7 1 N 420
+preplace netloc mig_7series_0_mmcm_locked 1 6 3 2100 250 2560J 270 2990
+preplace netloc mig_7series_0_ui_clk_sync_rst 1 6 3 2140 280 NJ 280 2980
+preplace netloc Net 1 1 7 330 420 680 870 1030 730 1390 780 1740 730 2120 690 2570
+preplace netloc adc_card_present_detect_0_1 1 0 8 NJ 90 NJ 90 NJ 90 NJ 90 NJ 90 NJ 90 NJ 90 2580J
+preplace netloc mig_7series_0_ui_clk 1 6 3 2130 480 2490J 290 2970
+preplace netloc xdma_0_axi_aresetn 1 1 7 340 430 670 860 1040 740 1400 790 1750 740 2140 860 2500
+preplace netloc vadc_fpga_sampling_led 1 8 2 NJ 140 NJ
+preplace netloc vadc_fpga_adc_card_present_led 1 8 2 NJ 160 NJ
+preplace netloc axi_interconnect_0_M02_AXI 1 3 1 1020 520n
+preplace netloc axi_dma_0_M_AXI_S2MM 1 6 1 2100 570n
+preplace netloc vpdelay_0_M00_AXIS 1 4 1 N 590
+preplace netloc xdma_0_M_AXI 1 2 5 660J 440 NJ 440 NJ 440 NJ 440 2110
+preplace netloc vfir_0_M00_AXIS 1 5 1 1730 590n
+preplace netloc axi_dma_0_M_AXI_SG 1 6 1 2110 590n
+preplace netloc smartconnect_0_M02_AXI 1 7 1 2530 600n
+preplace netloc vadc_M_ADC_A 1 8 2 NJ 100 NJ
+preplace netloc xdma_0_M_AXI_LITE 1 2 1 N 510
+preplace netloc smartconnect_0_M00_AXI 1 7 1 2520 560n
+preplace netloc axi_interconnect_0_M00_AXI 1 3 5 980J 80 NJ 80 NJ 80 NJ 80 2570
+preplace netloc axis_broadcaster_0_M00_AXIS 1 2 1 N 330
+preplace netloc axi_bram_ctrl_2_BRAM_PORTA 1 7 2 2510J 800 2960
+preplace netloc axi_bram_ctrl_0_BRAM_PORTA 1 8 1 2960 880n
+preplace netloc axi_interconnect_0_M03_AXI 1 3 2 1000J 720 1380
+preplace netloc vcbuffer_0_M00_BRAM_PORT 1 4 5 N 960 NJ 960 NJ 960 2480J 1020 NJ
+preplace netloc axi_bram_ctrl_3_BRAM_PORTA 1 8 1 N 720
+preplace netloc mig_7series_0_DDR3 1 8 2 NJ 350 NJ
+preplace netloc vadc_0_M00_AXIS 1 1 8 340 260 NJ 260 NJ 260 NJ 260 NJ 260 NJ 260 NJ 260 2990
+preplace netloc CLK_IN_D_0_1 1 0 1 NJ 570
+preplace netloc axis_data_fifo_2_M_AXIS 1 3 1 1040 350n
+preplace netloc xdma_0_pcie_mgt 1 2 8 650J 450 NJ 450 NJ 450 NJ 450 2100J 490 2490J 960 NJ 960 NJ
+preplace netloc axi_interconnect_0_M04_AXI 1 3 3 980J 770 NJ 770 1720
+preplace netloc axis_data_fifo_1_M_AXIS 1 3 1 1010 180n
+preplace netloc vadc_M_ADC_B 1 8 2 NJ 120 NJ
+preplace netloc smartconnect_0_M01_AXI 1 7 1 2550 530n
+preplace netloc vfir_0_M00_BRAM_PORT 1 5 4 1730 940 2100J 970 NJ 970 2980J
+preplace netloc smartconnect_0_M03_AXI 1 7 1 2540 360n
+preplace netloc axi_interconnect_0_M01_AXI 1 3 1 990 630n
+preplace netloc axi_bram_ctrl_1_BRAM_PORTA 1 8 1 2990 550n
+preplace netloc axis_broadcaster_0_M01_AXIS 1 2 1 650 160n
+levelinfo -pg 1 0 170 500 830 1220 1560 1930 2310 2770 3090 3210
+pagesize -pg 1 -db -bbox -sgen -220 0 3440 1100
+"
+}
+{
+   "da_board_cnt":"2",
+   "da_clkrst_cnt":"1"
+}

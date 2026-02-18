@@ -200,8 +200,8 @@
 	reg [FIR_LENGTH_BIT_NUM-1:0] fir_data_line_pointer = 0;  /* current fir data line pointer (newest data pointer+1) */
 	reg [FIR_LENGTH_BIT_NUM-1:0] last_fir_data_line_pointer = 0;  /* last fir line pointer (newest data pointer) */
 
-	reg [FIR_LENGTH_BIT_NUM-1:0] fir_coef_calculate_pointer = 0;  /* fir calculate pointer for data */
-	reg [FIR_LENGTH_BIT_NUM-1:0] fir_data_calculate_pointer = 0;  /* fir calculate pointer for coef */
+	reg [FIR_LENGTH_BIT_NUM-1:0] fir_coef_calculate_pointer = 0;  /* fir calculate pointer for coef */
+	reg [FIR_LENGTH_BIT_NUM-1:0] fir_data_calculate_pointer = 0;  /* fir calculate pointer for data */
 
 	reg [3:0] fir_state = FIR_WAIT_FOR_TRIGGER;
 
@@ -923,8 +923,11 @@
 
 					/* Next data pointer */
 
-					if (fir_data_calculate_pointer >= fir_length_updated - 1) fir_data_calculate_pointer <= 0;
-					else fir_data_calculate_pointer <= fir_data_calculate_pointer + 1;
+					/* output = sigma(h{i}x{i}), i = 0, 1, ..., L - 1. */
+					/* x(0) = newest data, x(L - 1) = latest data */
+
+					if (fir_data_calculate_pointer == 0) fir_data_calculate_pointer <= fir_length_updated - 1;
+					else fir_data_calculate_pointer <= fir_data_calculate_pointer - 1;
 
 					/* Next coefficient pointer */
 
@@ -1029,8 +1032,7 @@
 				fir_pipeline_complete_flag <= FALSE;
 				/* pointer: coef = 0, data = oldest */
 				fir_coef_calculate_pointer <= 0;
-				if (last_fir_data_line_pointer >= fir_length_updated - 1) fir_data_calculate_pointer <= 0;  /* oldest = newest + 1 */
-				else fir_data_calculate_pointer <= last_fir_data_line_pointer + 1;  /* oldest = newest + 1 */
+				fir_data_calculate_pointer <= last_fir_data_line_pointer;  /* to newest data pointer */
 			end
 		end
 	end
