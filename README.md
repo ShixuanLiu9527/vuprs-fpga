@@ -12,7 +12,8 @@
     <img src="./docs/image/block_design.png" alt="bd" style="width:1000px; height:auto;" /> 
 </div>
 
-[查看`Block Design`详细设计](./docs/vbd.pdf)
+[[ 查看`Block Design`详细设计 ]](./docs/vbd.pdf)
+[[ 回到主仓库: vuprs-support ]](https://github.com/ShixuanLiu9527/vuprs-server.git)
 
 ## AXI 总线地址分配
 
