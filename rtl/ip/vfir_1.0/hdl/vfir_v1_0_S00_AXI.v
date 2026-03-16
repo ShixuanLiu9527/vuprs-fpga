@@ -93,7 +93,15 @@
 		output wire  S_AXI_RVALID,
 		// Read ready. This signal indicates that the master can
     		// accept the read data and response information.
-		input wire  S_AXI_RREADY
+		input wire  S_AXI_RREADY,
+
+		output wire [3:0] DEBUG_len_state_S_AXI,
+		output wire [3:0] DEBUG_coef_state_S_AXI,
+
+		output wire DEBUG_update_coef,
+		output wire DEBUG_update_len,
+
+		output wire [7:0] DEBUG_update_coef_count
 	);
 
 	localparam TRUE = 1'b1,
@@ -151,6 +159,23 @@
 	// S_AXI_AWVALID and S_AXI_WVALID are asserted. axi_awready is
 	// de-asserted when reset is low.
 
+	localparam [3:0] LEN_WAIT_FOR_TRIGGER          = 4'd0,
+					 LEN_WAIT_LAST_UPDATE_COMPLETE = 4'd1,
+					 LEN_TRIGGER_UPDATE            = 4'd2,
+					 LEN_WAIT_UPDATE_START         = 4'd3,
+					 LEN_CLEAR_FLAG                = 4'd4;
+
+	localparam [3:0] COEF_WAIT_FOR_TRIGGER          = 4'd0,
+					 COEF_WAIT_LAST_UPDATE_COMPLETE = 4'd1,
+					 COEF_TRIGGER_UPDATE            = 4'd2,
+					 COEF_WAIT_UPDATE_START         = 4'd3,
+					 COEF_CLEAR_FLAG                = 4'd4;
+
+	reg [3:0] len_state = LEN_WAIT_FOR_TRIGGER;
+	reg [3:0] coef_state = COEF_WAIT_FOR_TRIGGER;
+	
+	reg [7:0] update_coef_count = 0;
+
 	reg run_enable_reg = FALSE;
 	reg software_rst_reg = FALSE;
 
@@ -170,6 +195,12 @@
 	assign run_enable = run_enable_reg;
 	assign fir_length = slv_reg3;
 	assign fir_scale = slv_reg4;
+
+	assign DEBUG_coef_state_S_AXI = coef_state;
+	assign DEBUG_len_state_S_AXI = len_state;
+	assign DEBUG_update_coef = update_coef;
+	assign DEBUG_update_len = update_length;
+	assign DEBUG_update_coef_count = update_coef_count;
 
 	always @( posedge S_AXI_ACLK )
 	begin
@@ -260,8 +291,7 @@
 
 	always @( posedge S_AXI_ACLK )
 	begin
-	  if ( S_AXI_ARESETN == 1'b0 )
-	    begin
+	  if ( S_AXI_ARESETN == 1'b0 ) begin
 	      slv_reg0 <= 0;
 	      slv_reg1 <= 0;
 	      slv_reg2 <= 0;
@@ -273,12 +303,12 @@
 		  software_rst_reg <= FALSE;
 		  update_length <= FALSE;
 		  update_coef <= FALSE;
-	    end 
-	  else begin
-	    if (slv_reg_wren)
-	    begin
+		  run_enable_reg <= FALSE;
+		  update_coef_count <= 0;
+		end else begin
+	    if (slv_reg_wren) begin
 	        case ( axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
-	          3'h0:
+	          3'h0: begin
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
 	            //     // Respective byte enables are asserted as per write strobes 
@@ -286,7 +316,8 @@
 	            //     slv_reg0[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
 	            //   end  
 				software_rst_reg <= TRUE;
-	          3'h1:
+			  end
+	          3'h1: begin
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
 	            //     // Respective byte enables are asserted as per write strobes 
@@ -294,7 +325,9 @@
 	            //     slv_reg1[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
 	            //   end  
 				update_length <= TRUE;
-	          3'h2:
+				update_coef_count <= update_coef_count + 1;
+			  end
+	          3'h2: begin
 	            // for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	            //   if ( S_AXI_WSTRB[byte_index] == 1 ) begin
 	            //     // Respective byte enables are asserted as per write strobes 
@@ -302,6 +335,8 @@
 	            //     slv_reg2[(byte_index*8) +: 8] <= S_AXI_WDATA[(byte_index*8) +: 8];
 	            //   end  
 				update_coef <= TRUE;
+				update_coef_count <= update_coef_count + 1;
+			  end
 	          3'h3:
 	            for ( byte_index = 0; byte_index <= (C_S_AXI_DATA_WIDTH/8)-1; byte_index = byte_index+1 )
 	              if ( S_AXI_WSTRB[byte_index] == 1 ) begin
@@ -348,23 +383,19 @@
 	                    //   slv_reg7 <= slv_reg7;
 	                    end
 	        endcase
-	    end
+		end else begin
+		  	if (software_rst_sync) software_rst_reg <= FALSE;
+			else software_rst_reg <= software_rst_reg;
 
-		run_enable_reg <= slv_reg5[0];
-		slv_reg6[0] <= refreshed;
-		slv_reg6[1] <= len_updated;
-		slv_reg6[2] <= coef_updated;
-		slv_reg7 <= MAXIMUM_FILTER_LENGTH;
+			if (update_length_clear_flag) update_length <= FALSE;
+			else update_length <= update_length;
 
-		if (software_rst_sync) software_rst_reg <= FALSE;
-		else software_rst_reg <= software_rst_reg;
+			if (update_coef_clear_flag) update_coef <= FALSE;
+			else update_coef <= update_coef;
 
-		if (update_length_clear_flag) update_length <= FALSE;
-		else update_length <= update_length;
-
-		if (update_coef_clear_flag) update_coef <= FALSE;
-		else update_coef <= update_coef;
-
+			run_enable_reg <= slv_reg5[0];
+			slv_reg6 <= {slv_reg6[31:11], update_coef_count, coef_updated, len_updated, refreshed};
+		end
 	  	end
 	end    
 
@@ -502,21 +533,6 @@
 	end    
 
 	// Add user logic here
-
-	localparam [3:0] LEN_WAIT_FOR_TRIGGER          = 4'd0,
-					 LEN_WAIT_LAST_UPDATE_COMPLETE = 4'd1,
-					 LEN_TRIGGER_UPDATE            = 4'd2,
-					 LEN_WAIT_UPDATE_START         = 4'd3,
-					 LEN_CLEAR_FLAG                = 4'd4;
-
-	localparam [3:0] COEF_WAIT_FOR_TRIGGER          = 4'd0,
-					 COEF_WAIT_LAST_UPDATE_COMPLETE = 4'd1,
-					 COEF_TRIGGER_UPDATE            = 4'd2,
-					 COEF_WAIT_UPDATE_START         = 4'd3,
-					 COEF_CLEAR_FLAG                = 4'd4;
-
-	reg [3:0] len_state = LEN_WAIT_FOR_TRIGGER;
-	reg [3:0] coef_state = COEF_WAIT_FOR_TRIGGER;
 
 	/* ------------------------------------------------------------------- */
 	/* ------------------------------ SYNC ------------------------------- */

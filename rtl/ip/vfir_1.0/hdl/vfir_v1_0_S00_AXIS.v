@@ -28,8 +28,8 @@
 		input wire run_enable,  /* HIGH = Run enable */
 		input wire software_rst,  /* HIGH = Reset */
 
-		input wire len_update_trigger,  /* all update, clear data in fir bank, rising edge trigger */
-		input wire coef_update_trigger,  /* coefficient & scale update, will not clear data, rising edge trigger */
+		input wire len_update_trigger,  /* all update, clear data in fir bank, HIGH trigger */
+		input wire coef_update_trigger,  /* coefficient & scale update, will not clear data, HIGH trigger */
 
 		output wire refreshed,  /* HIGH = indicate FIR data line refreshed */
 		output wire len_updated,  /* HIGH = indicate LEN update completed */
@@ -74,7 +74,12 @@
 		output wire [3:0] DEBUG_axis_state,
 		output wire [3:0] DEBUG_fir_state,
 		output wire [3:0] DEBUG_len_update_state,
-		output wire [3:0] DEBUG_coef_update_state
+		output wire [3:0] DEBUG_coef_update_state,
+
+		output wire [31:0] DEBUG_fir_coef_raw_4,
+		output wire [15:0] DEBUG_fir_data_raw_4,
+
+		output wire [7:0] DEBUG_coef_updated_times
 	);
 	
 	function integer clogb2 (input integer bit_depth);
@@ -104,9 +109,9 @@
 	localparam SCALED_MUL_RESULT_BIT_NUM = MUL_RESULT_BIT_NUM + C_S_AXIS_TDATA_WIDTH + 1;
 	localparam BRAM_ADDR_INCREMENT = BRAM_DATA_WIDTH/8;
 
-	localparam AXIS_RECEIVE_BUFFER_ADDR_SIZE = clogb2(FRAME_WORD_DATA_NUMBER + 1);
-	localparam FIR_LENGTH_BIT_NUM = clogb2(MAXIMUM_FILTER_LENGTH + 2);  /* 512 */
-	localparam EXTERNAL_BRAM_ADDR_SIZE = clogb2(MAXIMUM_COEFFICIENT_NUMBER + 2);  /* 512 * 16 */
+	localparam AXIS_RECEIVE_BUFFER_ADDR_SIZE = clogb2(FRAME_WORD_DATA_NUMBER + 1) + 1;
+	localparam FIR_LENGTH_BIT_NUM = clogb2(MAXIMUM_FILTER_LENGTH + 1) + 2;  /* 512 */
+	localparam EXTERNAL_BRAM_ADDR_SIZE = clogb2(MAXIMUM_COEFFICIENT_NUMBER + 1) + 2;  /* 512 * 16 */
 
 	localparam INVALID_COEF_POINTER = MAXIMUM_FILTER_LENGTH;  /* INVALID COEF_POINTER */
 	
@@ -153,18 +158,16 @@
 
 	reg refreshed_reg = FALSE;
 
-	reg coef_update_trigger_sync1 = FALSE;
-	reg coef_update_trigger_sync2 = FALSE;
-	reg len_update_trigger_sync1 = FALSE;
-	reg len_update_trigger_sync2 = FALSE;
+	reg coef_update_trigger_sync = FALSE;
+	reg len_update_trigger_sync = FALSE;
 
 	reg coef_updated_reg = FALSE;
 	reg len_updated_reg = FALSE;
 
 	reg coef_triggered_by_len = FALSE;  /* in LEN, TRUE = trigger coef update */
 
-	wire len_update_is_triggered = (len_update_trigger_sync1 && !len_update_trigger_sync2);
-	wire coef_update_is_triggered = ((coef_update_trigger_sync1 && !coef_update_trigger_sync2) || coef_triggered_by_len);  /* can also be triggered by len update */
+	wire len_update_is_triggered = (len_update_trigger_sync);
+	wire coef_update_is_triggered = (coef_update_trigger_sync || coef_triggered_by_len);  /* can also be triggered by len update */
 
 	assign coef_updated = coef_updated_reg;
 	assign len_updated = len_updated_reg;
@@ -275,6 +278,8 @@
 	reg [3:0] len_update_state = LEN_UPDATE_WAIT_FOR_TRIGGER;
 	reg [3:0] coef_update_state = COEF_UPDATE_WAIT_FOR_TRIGGER;
 
+	reg [7:0] coef_updated_times = 0;
+
 	reg update_system_reset = FALSE;  /* TRUE = Reset AXI-S & FIR */
 	reg update_coef_reset = FALSE;  /* TRUE = Reset COEF */
 
@@ -286,15 +291,15 @@
 	reg signed [C_S_AXI_DATA_WIDTH-1:0] fir_scale_sync = 0;
 
 	reg [EXTERNAL_BRAM_ADDR_SIZE-1:0] coef_loaded_count = 0;
-	reg [7:0] coef_current_channel = 0;
-	reg [FIR_LENGTH_BIT_NUM-1:0] coef_current_offset = 0;
-	reg coef_save_enable = FALSE;  /* sync to bram_en, latency = 2 */
+	reg [7:0] coef_current_channel = 0;  /* current channel (in coefficient update) */
+	reg [FIR_LENGTH_BIT_NUM-1:0] coef_current_offset = 0;  /* current offset of coefficients */
 
 	reg signed [BRAM_DATA_WIDTH-1:0] bram_data = 0;  /* data from external BRAM */
-	reg [EXTERNAL_BRAM_ADDR_SIZE-1:0] bram_addr_reg = 0;  /* bram address control */
+	reg [BRAM_DATA_WIDTH-1:0] bram_addr_reg = 0;  /* bram address control */
 	reg bram_en_reg = FALSE;  /* bram enable */
 
-	reg bram_en_sync = FALSE;  /* bram enable (latency 1) */
+	reg bram_en_sync = FALSE;  /* sync to bram_en, latency = 1 */
+	reg bram_en_sync1 = FALSE;  /* sync to bram_en, latency = 2 */
 	
 	wire coef_update_busy = (coef_update_state != COEF_UPDATE_WAIT_FOR_TRIGGER);
 	
@@ -306,6 +311,7 @@
 	assign bram_addr = bram_addr_reg;
 	assign bram_en = bram_en_reg;
 	assign bram_we = {(BRAM_DATA_WIDTH/8){1'b0}};
+	assign bram_rst = FALSE;
 	assign bram_clk = S_AXIS_ACLK;
 	assign S_AXIS_TREADY = ((axis_state == AXIS_WAIT_FOR_DATA_HEADER || 
 						     axis_state == AXIS_RECEIVE_DATA || 
@@ -314,7 +320,10 @@
 	assign DEBUG_axis_state = axis_state;
 	assign DEBUG_fir_state = fir_state;
 	assign DEBUG_coef_update_state = coef_update_state;
-	assign DEBUG_len_update_state = len_update_state;	
+	assign DEBUG_len_update_state = len_update_state;
+	assign DEBUG_fir_coef_raw_4 = fir_coef_raw[4];
+	assign DEBUG_fir_data_raw_4 = fir_data_raw[4];
+	assign DEBUG_coef_updated_times = coef_updated_times;
 	
 	`define FIR_S00_AXIS_HAND_SHACK (S_AXIS_TREADY && S_AXIS_TVALID)
 
@@ -509,12 +518,10 @@
 
 	always @(posedge S_AXIS_ACLK) begin
 		if (S_AXIS_ARESETN == 1'b0 || software_rst_sync) begin
-			len_update_trigger_sync1 <= FALSE;
-			len_update_trigger_sync2 <= FALSE;
+			len_update_trigger_sync <= FALSE;
 			fir_length_sync <= MAXIMUM_FILTER_LENGTH;
 		end else begin
-			len_update_trigger_sync1 <= len_update_trigger;
-			len_update_trigger_sync2 <= len_update_trigger_sync1;
+			len_update_trigger_sync <= len_update_trigger;
 			if (fir_length <= MAXIMUM_FILTER_LENGTH) fir_length_sync <= fir_length;
 			else fir_length_sync <= fir_length_sync;
 		end
@@ -662,17 +669,15 @@
 
 	always @(posedge S_AXIS_ACLK) begin
 		if (S_AXIS_ARESETN == 1'b0 || software_rst_sync || update_coef_reset) begin
-			coef_update_trigger_sync1 <= FALSE;
-			coef_update_trigger_sync2 <= FALSE;
+			coef_update_trigger_sync <= FALSE;
 			fir_scale_sync <= 0;
-
-			bram_en_sync <= 0;
+			bram_en_sync <= FALSE;
+			bram_en_sync1 <= FALSE;
 		end else begin
-			coef_update_trigger_sync1 <= coef_update_trigger;
-			coef_update_trigger_sync2 <= coef_update_trigger_sync1;
+			coef_update_trigger_sync <= coef_update_trigger;
 			fir_scale_sync <= $signed(fir_scale);
-
 			bram_en_sync <= bram_en_reg;
+			bram_en_sync1 <= bram_en_sync;
 		end
 	end
 
@@ -682,6 +687,7 @@
 		if (S_AXIS_ARESETN == 1'b0 || software_rst_sync || update_coef_reset) begin
 			coef_have_reset <= TRUE;
 			coef_update_state <= COEF_UPDATE_WAIT_FOR_TRIGGER;
+			coef_updated_times <= 0;
 		end else begin
 			coef_have_reset <= FALSE;
 			case (coef_update_state)
@@ -697,8 +703,10 @@
 				coef_update_state <= COEF_UPDATE_COEFFICIENT;
 			end
 			COEF_UPDATE_COEFFICIENT: begin
-				if (coef_current_channel >= 8'd16) coef_update_state <= COEF_UPDATE_WAIT_FOR_TRIGGER;
-				else coef_update_state <= coef_update_state;
+				if (coef_current_channel >= 8'd16) begin
+					coef_update_state <= COEF_UPDATE_WAIT_FOR_TRIGGER;
+					coef_updated_times <= coef_updated_times + 1;
+				end else coef_update_state <= coef_update_state;
 			end
 			default: begin
 				coef_update_state <= COEF_UPDATE_WAIT_FOR_TRIGGER;
@@ -715,7 +723,8 @@
 			bram_addr_reg <= 0;
 			fir_scale_updated <= 0;
 			coef_loaded_count <= 0;
-			coef_save_enable <= FALSE;
+			coef_current_channel <= 0;
+			coef_current_offset <= 0;
 			coef_updated_reg <= FALSE;
 		end else begin
 			case (coef_update_state)
@@ -723,28 +732,32 @@
 				bram_en_reg <= FALSE;
 				bram_addr_reg <= 0;
 				coef_loaded_count <= 0;
-				coef_save_enable <= FALSE;
-				coef_updated_reg <= TRUE;
+				coef_current_channel <= 0;
+				coef_current_offset <= 0;
+				coef_updated_reg <= TRUE;  /* can only be TRUE here */
 			end
 			COEF_UPDATE_CHECK_FIR_CALCULATING: begin
 				bram_en_reg <= FALSE;
 				bram_addr_reg <= 0;
 				coef_loaded_count <= 0;
-				coef_save_enable <= FALSE;
+				coef_current_channel <= 0;
+				coef_current_offset <= 0;
 				coef_updated_reg <= FALSE;
 			end
 			COEF_UPDATE_SCALE: begin
 				fir_scale_updated <= fir_scale_sync;
-				bram_en_reg <= TRUE;
+				bram_en_reg <= FALSE;
 				bram_addr_reg <= 0;
 				coef_loaded_count <= 0;
-				coef_save_enable <= FALSE;
+				coef_current_channel <= 0;
+				coef_current_offset <= 0;
 				coef_updated_reg <= FALSE;
 			end
 			COEF_UPDATE_COEFFICIENT: begin
-
 				coef_updated_reg <= FALSE;
-
+				/* ------------------------------------------------------------------------------------------ */
+				/* --------------------------- Pipeline 1: Control for BRAM_EN ------------------------------ */
+				/* ------------------------------------------------------------------------------------------ */
 				if (bram_en_reg) begin
 					bram_addr_reg <= bram_addr_reg + BRAM_ADDR_INCREMENT;  /* Address + 4 bytes */
 					coef_loaded_count <= coef_loaded_count + 1;
@@ -753,39 +766,19 @@
 				end else begin
 					bram_addr_reg <= bram_addr_reg;
 					if (coef_loaded_count >= fir_coef_number_updated) bram_en_reg <= FALSE;
-					else bram_en_reg <= TRUE;  /* continue read */
+					else bram_en_reg <= TRUE;  /* continuous read */
 				end
-
-				if (bram_en_sync) begin  /* aligned to data */
-					bram_data <= $signed(bram_dout);
-					coef_save_enable <= TRUE;  /* aligned to data out */
-				end else begin
-					bram_data <= 0;
-					coef_save_enable <= FALSE;
-				end
-
-			end
-			default: begin
-				bram_en_reg <= FALSE;
-				bram_addr_reg <= 0;
-				fir_scale_updated <= 0;
-				coef_loaded_count <= 0;
-				coef_save_enable <= FALSE;
-				coef_updated_reg <= FALSE;
-			end
-			endcase
-		end
-	end
-
-	always @(posedge S_AXIS_ACLK) begin  /* Save to internal bram */
-		if (S_AXIS_ARESETN == 1'b0 || software_rst_sync || update_coef_reset) begin
-			coef_current_channel <= 0;
-			coef_current_offset <= 0;
-		end else begin
-			if (coef_update_state == COEF_UPDATE_COEFFICIENT) begin
-				if (coef_save_enable) begin  /* Save enable */
+				/* ------------------------------------------------------------------------------------------ */
+				/* ------------------------ Pipeline 2: Read data from BRAM_DOUT ---------------------------- */
+				/* ------------------------------------------------------------------------------------------ */
+				if (bram_en_sync) bram_data <= $signed(bram_dout);  /* Read data  (latency = 1, relative to BRAM_EN) */
+				else bram_data <= bram_data;
+				/* ------------------------------------------------------------------------------------------ */
+				/* --------------------- Pipeline 3: Push data to FIR coefficients -------------------------- */
+				/* ------------------------------------------------------------------------------------------ */
+				if (bram_en_sync1) begin  /* Save enable (latency = 2, relative to BRAM_EN) */
 					if (coef_current_channel <= 8'd15) begin
-						/* Pointer */
+						/* relative pointers (channel offset & channel count) */
 						if (coef_current_offset >= fir_length_updated - 1) begin
 							coef_current_offset <= 0;
 							coef_current_channel <= coef_current_channel + 1;
@@ -793,7 +786,7 @@
 							coef_current_offset <= coef_current_offset + 1;
 							coef_current_channel <= coef_current_channel;
 						end
-						/* Save */
+						/* save data to coefficients line */
 						case (coef_current_channel)
 							8'd0:  fir_coef_line_ch1 [coef_current_offset] <= bram_data;
 							8'd1:  fir_coef_line_ch2 [coef_current_offset] <= bram_data;
@@ -821,10 +814,15 @@
 					coef_current_offset <= coef_current_offset;
 					coef_current_channel <= coef_current_channel;
 				end
-			end else begin
-				coef_current_channel <= 0;
-				coef_current_offset <= 0;
 			end
+			default: begin
+				bram_en_reg <= FALSE;
+				bram_addr_reg <= 0;
+				fir_scale_updated <= 0;
+				coef_loaded_count <= 0;
+				coef_updated_reg <= FALSE;
+			end
+			endcase
 		end
 	end
 
@@ -985,22 +983,22 @@
 					fir_data_raw[14] <= fir_data_line_ch15[fir_data_calculate_pointer];
 					fir_data_raw[15] <= fir_data_line_ch16[fir_data_calculate_pointer];
 
-					fir_coef_raw[0]  <= fir_coef_line_ch1 [fir_data_calculate_pointer];
-					fir_coef_raw[1]  <= fir_coef_line_ch2 [fir_data_calculate_pointer];
-					fir_coef_raw[2]  <= fir_coef_line_ch3 [fir_data_calculate_pointer];
-					fir_coef_raw[3]  <= fir_coef_line_ch4 [fir_data_calculate_pointer];
-					fir_coef_raw[4]  <= fir_coef_line_ch5 [fir_data_calculate_pointer];
-					fir_coef_raw[5]  <= fir_coef_line_ch6 [fir_data_calculate_pointer];
-					fir_coef_raw[6]  <= fir_coef_line_ch7 [fir_data_calculate_pointer];
-					fir_coef_raw[7]  <= fir_coef_line_ch8 [fir_data_calculate_pointer];
-					fir_coef_raw[8]  <= fir_coef_line_ch9 [fir_data_calculate_pointer];
-					fir_coef_raw[9]  <= fir_coef_line_ch10[fir_data_calculate_pointer];
-					fir_coef_raw[10] <= fir_coef_line_ch11[fir_data_calculate_pointer];
-					fir_coef_raw[11] <= fir_coef_line_ch12[fir_data_calculate_pointer];
-					fir_coef_raw[12] <= fir_coef_line_ch13[fir_data_calculate_pointer];
-					fir_coef_raw[13] <= fir_coef_line_ch14[fir_data_calculate_pointer];
-					fir_coef_raw[14] <= fir_coef_line_ch15[fir_data_calculate_pointer];
-					fir_coef_raw[15] <= fir_coef_line_ch16[fir_data_calculate_pointer];
+					fir_coef_raw[0]  <= fir_coef_line_ch1 [fir_coef_calculate_pointer];
+					fir_coef_raw[1]  <= fir_coef_line_ch2 [fir_coef_calculate_pointer];
+					fir_coef_raw[2]  <= fir_coef_line_ch3 [fir_coef_calculate_pointer];
+					fir_coef_raw[3]  <= fir_coef_line_ch4 [fir_coef_calculate_pointer];
+					fir_coef_raw[4]  <= fir_coef_line_ch5 [fir_coef_calculate_pointer];
+					fir_coef_raw[5]  <= fir_coef_line_ch6 [fir_coef_calculate_pointer];
+					fir_coef_raw[6]  <= fir_coef_line_ch7 [fir_coef_calculate_pointer];
+					fir_coef_raw[7]  <= fir_coef_line_ch8 [fir_coef_calculate_pointer];
+					fir_coef_raw[8]  <= fir_coef_line_ch9 [fir_coef_calculate_pointer];
+					fir_coef_raw[9]  <= fir_coef_line_ch10[fir_coef_calculate_pointer];
+					fir_coef_raw[10] <= fir_coef_line_ch11[fir_coef_calculate_pointer];
+					fir_coef_raw[11] <= fir_coef_line_ch12[fir_coef_calculate_pointer];
+					fir_coef_raw[12] <= fir_coef_line_ch13[fir_coef_calculate_pointer];
+					fir_coef_raw[13] <= fir_coef_line_ch14[fir_coef_calculate_pointer];
+					fir_coef_raw[14] <= fir_coef_line_ch15[fir_coef_calculate_pointer];
+					fir_coef_raw[15] <= fir_coef_line_ch16[fir_coef_calculate_pointer];
 
 					fir_stage01_complete_flag <= FALSE;
 
@@ -1047,7 +1045,7 @@
 				fir_stage_output_complete_flag <= fir_stage5_complete_flag;
 				fir_pipeline_complete_flag <= fir_stage_output_complete_flag;
 
-			end else if (fir_state == FIR_GET_SCALE_RESULT) begin  /* Reserve the result for 2 cycles */
+			end else if (fir_state == FIR_GET_SCALE_RESULT || fir_state == FIR_CONVERT_SCALED_TO_AXIS) begin  /* Reserve the result for 2 cycles */
 				fir_raw_output <= fir_raw_output;
 			end else begin  /* clear data */
 				fir_raw_output <= 0;

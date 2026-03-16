@@ -87,7 +87,15 @@
 		output wire [3:0] DEBUG_axis_state,
 		output wire [3:0] DEBUG_fir_state,
 		output wire [3:0] DEBUG_len_update_state,
-		output wire [3:0] DEBUG_coef_update_state
+		output wire [3:0] DEBUG_coef_update_state,
+
+		output wire [31:0] DEBUG_fir_coef_raw_4,
+		output wire [15:0] DEBUG_fir_data_raw_4,
+		output wire [7:0] DEBUG_coef_updated_times,
+
+		output wire [3:0] DEBUG_len_state_S_AXI,
+		output wire [3:0] DEBUG_coef_state_S_AXI,
+		output wire [7:0] DEBUG_update_coef_count
 	);
 
 	wire [C_S00_AXI_DATA_WIDTH-1:0] fir_length;  /* FIR Length */
@@ -148,8 +156,11 @@
 
 		.refreshed(refreshed),  /* HIGH = indicate FIR data line refreshed */
 		.len_updated(len_updated),  /* HIGH = indicate LEN update completed */
-		.coef_updated(coef_updated)  /* HIGH = indicate Coefficient update completed */
+		.coef_updated(coef_updated),  /* HIGH = indicate Coefficient update completed */
 
+		.DEBUG_len_state_S_AXI(DEBUG_len_state_S_AXI),
+		.DEBUG_coef_state_S_AXI(DEBUG_coef_state_S_AXI),
+		.DEBUG_update_coef_count(DEBUG_update_coef_count)
 	);
 
 // Instantiation of Axi Bus Interface S00_AXIS
@@ -204,7 +215,12 @@
 		.DEBUG_axis_state(DEBUG_axis_state),
 		.DEBUG_fir_state(DEBUG_fir_state),
 		.DEBUG_len_update_state(DEBUG_len_update_state),
-		.DEBUG_coef_update_state(DEBUG_coef_update_state)
+		.DEBUG_coef_update_state(DEBUG_coef_update_state),
+
+		.DEBUG_fir_coef_raw_4(DEBUG_fir_coef_raw_4),
+		.DEBUG_fir_data_raw_4(DEBUG_fir_data_raw_4),
+
+		.DEBUG_coef_updated_times(DEBUG_coef_updated_times)
 	);
 
 // Instantiation of Axi Bus Interface M00_AXIS
