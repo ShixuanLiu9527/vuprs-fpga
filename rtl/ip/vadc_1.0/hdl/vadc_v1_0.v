@@ -18,8 +18,6 @@
           	  		      T15_NS             = 6,    /* unit: ns, t15 of AD7606 (refer to data sheet) */
           	  		      T26_NS             = 25,   /* unit: ns, t15 of AD7606 (refer to data sheet) */
 
-		parameter integer C_M_AXIS_BUFFER_SIZE = 32,
-
 		// User parameters ends
 		// Do not modify the parameters beyond this line
 
@@ -106,7 +104,16 @@
 		output wire [(C_M00_AXIS_TDATA_WIDTH/8)-1 : 0] m00_axis_tstrb,
 		output wire [(C_M00_AXIS_TDATA_WIDTH/8)-1 : 0] m00_axis_tkeep,
 		output wire  m00_axis_tlast,
-		input wire  m00_axis_tready
+		input wire  m00_axis_tready,
+
+		/* DEBUG */
+
+		output wire [2:0] DEBUG_frame_state,
+
+		output wire [3:0] DEBUG_system_state,
+		output wire [3:0] DEBUG_sampling_state,
+		output wire [3:0] DEBUG_axis_state,
+		output wire [31:0] DEBUG_global_sent_points
 	);
 
 	wire ready;
@@ -163,7 +170,11 @@
 		.S_AXI_RDATA(s00_axi_rdata),
 		.S_AXI_RRESP(s00_axi_rresp),
 		.S_AXI_RVALID(s00_axi_rvalid),
-		.S_AXI_RREADY(s00_axi_rready)
+		.S_AXI_RREADY(s00_axi_rready),
+
+		/* DEBUG */
+
+		.DEBUG_frame_state(DEBUG_frame_state)
 	);
 
 // Instantiation of Axi Bus Interface M00_AXIS
@@ -171,8 +182,7 @@
 
 		.C_M_AXIS_TDATA_WIDTH(C_M00_AXIS_TDATA_WIDTH),
 		.C_M_START_COUNT(C_M00_AXIS_START_COUNT),
-		.C_M_AXIS_BUFFER_SIZE(C_M_AXIS_BUFFER_SIZE),
-
+		
 		.USR_CLK_CYCLE_NS(USR_CLK_CYCLE_NS),  /* unit: ns, clock cycle of [usr_clk] (e.g. 20 ns for 50 MHz) */
         .T_CYCLE_NS(T_CYCLE_NS),              /* unit: ns, t_cycle of AD7606 (refer to data sheet) */
         .T_RESET_NS(T_RESET_NS),              /* unit: ns, t_reset of AD7606 (refer to data sheet) */
@@ -242,7 +252,14 @@
 		.M_AXIS_TDATA(m00_axis_tdata),
 		.M_AXIS_TSTRB(m00_axis_tstrb),
 		.M_AXIS_TLAST(m00_axis_tlast),
-		.M_AXIS_TREADY(m00_axis_tready)
+		.M_AXIS_TREADY(m00_axis_tready),
+
+		/* DEBUG */
+
+		.DEBUG_system_state(DEBUG_system_state),
+		.DEBUG_sampling_state(DEBUG_sampling_state),
+		.DEBUG_axis_state(DEBUG_axis_state),
+		.DEBUG_global_sent_points(DEBUG_global_sent_points)
 	);
 
 	// Add user logic here

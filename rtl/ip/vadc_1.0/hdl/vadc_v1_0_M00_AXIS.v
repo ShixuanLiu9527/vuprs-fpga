@@ -28,10 +28,6 @@
 
 		parameter integer C_M_START_COUNT	     = 32,
 
-		/* AXI-Stream Buffer size */
-
-		parameter integer C_M_AXIS_BUFFER_SIZE   = 32,  /* Smaller than 255 */
-
 		/* Data Header & Data Tailer */
 
 		parameter [31: 0] FRAME_HEADER           = 32'h0000_FFF0,
@@ -49,6 +45,7 @@
 		input wire                                   continuous_sampling,
 
 		input wire                                   one_frame_sampling_trigger, /* rising edge to trigger */
+
 		input wire                                   adc_clk,                    /* clock for ADC, 100 MHz or 50 MHz */
 		input wire                                   adc_rst_n,                  /* reset signal for ADC */
 
@@ -117,129 +114,84 @@
 
 		/* TREADY indicates that the slave can accept a transfer in the current cycle. */
 
-		input wire                                      M_AXIS_TREADY
+		input wire                                      M_AXIS_TREADY,
+
+		/* ------------------------------------- DEBUG ----------------------------------- */
+
+		output wire [3:0] DEBUG_system_state,
+		output wire [3:0] DEBUG_sampling_state,
+		output wire [3:0] DEBUG_axis_state,
+		output wire [31:0] DEBUG_global_sent_points
+
 	);
 	
-	function integer clogb2 (input integer bit_depth);
-		begin
-	    	for(clogb2=0; bit_depth>0; clogb2=clogb2+1)
-	      		bit_depth = bit_depth >> 1;
-	  	end
-	endfunction
+	localparam DEFAULT_CLOCK_INCREMENT       = 12500;
+	localparam DEFAULT_SAMPLING_POINTS       = 1024;
+	localparam HIGH                          = 1'b1,
+			   LOW                           = 1'b0;
+	localparam TRUE                          = 1'b1,
+			   FALSE                         = 1'b0;
+	localparam FRAME_WORD_NUMBER             = 10;
+	localparam DATA_WORD_NUMBER              = FRAME_WORD_NUMBER - 2;
+	localparam MINIUM_SAMPLING_CLK_INCREMENT = (1000_000_000 / 150_000) / USR_CLK_CYCLE_NS + 1;  // 150 kHz max
 
-	// WAIT_COUNT_BITS is the width of the wait counter.                                 
-	localparam integer BUFFER_POINTER_BITS = clogb2(C_M_AXIS_BUFFER_SIZE) + 3;
+	localparam SYSTEM_STATE__IDLE                          = 4'd0,  /* wait for trigger */
+			   SYSTEM_STATE__INIT_SYNC_PARAM               = 4'd1,  /* sync parameters */
+			   SYSTEM_STATE__SEND_STREAM                   = 4'd2;  /* send stream */
 
-	// BIT_NUM gives the minimum number of bits needed to address 'depth' size of FIFO.  
-	localparam BIT_NUM  = CONTROL_REGISTER_WIDTH + 1;
+	localparam SAMPLING_STATE__CHECK_COMPLETE              = 4'd0,  /* Check complete flags */
+			   SAMPLING_STATE__WAIT_SAMPLING_START         = 4'd1,  /* Wait for sampling start */
+			   SAMPLING_STATE__WAIT_SAMPLING_END           = 4'd2,  /* Wait for sampling end */
+			   SAMPLING_STATE__WAIT_SENDING_END            = 4'd3,  /* Wait for AXI-Stream send complete */
+			   SAMPLING_STATE__PACK_DATA_TO_BUFFER         = 4'd4,  /* Pack data to AXI-Stream buffer */
+			   SAMPLING_STATE__TRIGGER_AXIS_SENDING        = 4'd5,  /* Trigger AXI-Stream sending */
+			   SAMPLING_STATE__WAIT_FOR_AXIS_SENDING_START = 4'd6;  /* Wait for AXI-Stream sending start */
 
-	localparam FIFO_RESET_CLOCK_COUNT = 10;
-	localparam FIFO_RESET_CLOCK_COUNT_2 = 65;
-	localparam FIFO_RESET_WAIT_MAX_COUNT = 150;
+	localparam AXIS_STATE__IDLE                            = 4'd0,  /* Idle, waiting for trigger */
+			   AXIS_STATE__SEND_STREAM                     = 4'd1;  /* Send data to AXI-Stream */
 
-	localparam ADC_DEFAULT_CLOCK_INCREMENT = 12500;
+	reg [3:0] system_state = SYSTEM_STATE__IDLE;  /* system state */
+	reg [3:0] sampling_state = SAMPLING_STATE__CHECK_COMPLETE;  /* system state */
+	reg [3:0] axis_state = AXIS_STATE__IDLE;  /* system state */
 
-	localparam BUFFER_RESET_CLOCK_COUNT = 3;
+	reg [31:0] global_sent_points = 0;  /* Point count sent by AXI-Stream */
+	reg [7:0] axis_words_sent_points = 0;  /* Word sent count */
 
-	localparam integer WAIT_COUNT_BITS = clogb2(FIFO_RESET_WAIT_MAX_COUNT) + 3;
-	                                                                                  
-	/*  
-		Define the states of state machine
-		The control state machine oversees the writing of input streaming data to the FIFO,
-		and outputs the streaming data from the FIFO
-	*/
-
-	localparam [1: 0] EXEC_STATE__IDLE = 2'b00,          // This is the initial/idle state               
-	                                                                                     
-	                  EXEC_STATE__INIT_COUNTER  = 2'b01, // This state initializes the counter, once
-	                                        			 // the counter reaches C_M_START_COUNT init_count,
-	                                        			 // the state machine changes state to SEND_STREAM
-	                  EXEC_STATE__SEND_STREAM   = 2'b10; // In this state the
-	                                        			 // stream data is output through M_AXIS_TDATA
-
-	localparam FIFO_WRITE_STATE__IDLE             = 1'd0,
-	           FIFO_WRITE_STATE__WRITE_FIFO       = 1'd1;
-
-	localparam INVALID_DATA                       = {(C_M_AXIS_TDATA_WIDTH){1'b1}};
-
-	localparam INVALID_SAMPLING_PARAM             = {(CONTROL_REGISTER_WIDTH){1'b1}};
-
-	localparam BUFFER_RESET_VALUE                 = {(C_M_AXIS_TDATA_WIDTH){1'b1}};
-
-	localparam HIGH                               = 1'b1,
-			   LOW                                = 1'b0;
-
-	localparam TRUE                               = 1'b1,
-			   FALSE                              = 1'b0;
-
-	localparam [7: 0] INVALID_BUFFER_POINTER      = C_M_AXIS_BUFFER_SIZE;  // 32
-
-	localparam [31: 0] INVALID_BUFFER_DATA        = 32'hF0F0_F0F0;
-
-	localparam FRAME_WORD_NUMBER                  = 10;
-
-	localparam MINIUM_SAMPLING_CLK_INCREMENT      = (1000_000_000 / 150_000) / USR_CLK_CYCLE_NS + 1;  // 150 kHz max
-
-	reg [1: 0] mst_exec_state;  // State variable
+	reg axis_sending_trigger_reg = LOW;  /* HIGH to trigger */
 	
-	reg [1: 0] mst_exec_state_sync00;  // ADC clock domain
-	reg [1: 0] mst_exec_state_sync01;  // ADC clock domain
-	reg [1: 0] mst_exec_state_sync;  // ADC clock domain
-	
-	reg [BIT_NUM - 1: 0] data_send_count;  // indicate the quantity of sended data, BIT_NUM
-	
-	// AXI Stream internal signals
+	reg  	                            axis_tlast = FALSE;  /* AXI-Stream T_LAST */
+	reg [C_M_AXIS_TDATA_WIDTH - 1 : 0] 	axis_tdata = 0; /* AXI-Stream T_DATA */
 
-	reg [WAIT_COUNT_BITS - 1: 0] init_count;  // wait counter. The master waits for the user defined number of clock cycles before initiating a transfer.
-	reg [WAIT_COUNT_BITS - 1: 0] fifo_reset_count;
+	reg module_ready = FALSE;  /* Indicate module ready */
 
-	reg [WAIT_COUNT_BITS - 1: 0] fifo_reset_count2;
+	reg software_rst_sync__axi = FALSE;  /* software reset */
 
-	reg [WAIT_COUNT_BITS - 1: 0] fifo_reset_count2_sync_00;  // AXI clock domain
-	reg [WAIT_COUNT_BITS - 1: 0] fifo_reset_count2_sync_01;  // AXI clock domain
-	reg [WAIT_COUNT_BITS - 1: 0] fifo_reset_count2_sync;  // AXI clock domain
-	
-	// reg  							    axis_tvalid;  // streaming data valid
-	reg  	                            axis_tlast;   // t_last
-	reg [C_M_AXIS_TDATA_WIDTH - 1 : 0] 	axis_tdata;    // FIFO implementation signals
+	reg software_rst_sync0__adc = FALSE;  /* software reset, ADC_CLK domain */
+	reg software_rst_sync1__adc = FALSE;  /* software reset, ADC_CLK domain */
+	reg software_rst_sync__adc = FALSE;  /* software reset, ADC_CLK domain */
 
-	assign M_AXIS_TDATA = axis_tdata;
+	reg one_frame_trigger_sync0 = FALSE;
+	reg one_frame_trigger_sync1 = FALSE;
 
-	reg                                 last_frame_sync;
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sci_reg_sync0 = DEFAULT_CLOCK_INCREMENT;  /* ADC_CLK domain */
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sci_reg_sync1 = DEFAULT_CLOCK_INCREMENT;  /* ADC_CLK domain */
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sci_reg = DEFAULT_CLOCK_INCREMENT;  /* ADC_CLK domain */
 
-	reg module_ready;
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sci_reg_sync0__axi = DEFAULT_CLOCK_INCREMENT;  /* AXIS_CLK domain */
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sci_reg_sync1__axi = DEFAULT_CLOCK_INCREMENT;  /* AXIS_CLK domain */
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sci_reg_sync__axi = DEFAULT_CLOCK_INCREMENT;  /* AXIS_CLK domain */
 
-	reg fifo_rd_en = FALSE;
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sampling_clk_count = 0;  /* ADC_CLK domain */
 
-	wire [C_M_AXIS_TDATA_WIDTH - 1: 0] current_fifo_read_data;
+	reg [3:0] system_state_sync0 = SYSTEM_STATE__IDLE;  /* ADC_CLK domain */
+	reg [3:0] system_state_sync1 = SYSTEM_STATE__IDLE;  /* ADC_CLK domain */
+	reg [3:0] system_state_sync = SYSTEM_STATE__IDLE;  /* ADC_CLK domain */
 
-	reg [63: 0] current_sampling_data_points;
+	reg sampling_clk_reg = FALSE;  /* ADC_CLK domain */
 
-	reg one_frame_sampling_trigger_sync1;
-	reg one_frame_sampling_trigger_sync2;
-	
-	wire fifo_almost_full;
-	wire fifo_full;
-	wire fifo_empty;
-	wire fifo_almost_empty;
+	reg [CONTROL_REGISTER_WIDTH - 1: 0] sp_reg = 1024;
 
-	wire fifo_wr_rst_busy;
-	wire fifo_rd_rst_busy;
-
-	reg fifo_reset = LOW;
-	
-	reg software_rst_sync_adc_00 = FALSE;
-	reg software_rst_sync_adc_01 = FALSE;
-	reg software_rst_sync_adc = FALSE;
-
-	reg software_rst_sync_axi = FALSE;
-
-	reg [C_M_AXIS_TDATA_WIDTH - 1: 0] send_buffer[0: C_M_AXIS_BUFFER_SIZE];  // 32, send_buffer[32] is invalid
-	reg [BUFFER_POINTER_BITS -1: 0] buffer_pointer;
-	reg reset_buffer = FALSE;
-
-	reg buffer_over_flow = FALSE;
-	reg buffer_pointer_error = FALSE;
+	reg [C_M_AXIS_TDATA_WIDTH - 1: 0] axis_buffer[0: DATA_WORD_NUMBER];  /* buffer[i] is data frame [i] */
 	
 	wire [15: 0] adc_a_ch1;
 	wire [15: 0] adc_a_ch2;
@@ -258,6 +210,8 @@
 	wire [15: 0] adc_b_ch6;
 	wire [15: 0] adc_b_ch7;
 	wire [15: 0] adc_b_ch8;
+
+	wire sampling_clk = sampling_clk_reg;
 	
 	wire adc_a_sampling;
 	wire adc_a_ready;
@@ -267,752 +221,297 @@
 	wire adc_b_ready;
 	wire [3: 0] adc_b_err;
 
-	reg adc_have_sampled = FALSE;  /* to ensure the output data of ADC modules is valid */
-
-	/* User Registers end */
-
-	// I/O Connections assignments
-
-	assign M_AXIS_TVALID = (buffer_pointer != INVALID_BUFFER_POINTER) && (mst_exec_state == EXEC_STATE__SEND_STREAM);  // tvalid signal
-	assign M_AXIS_TLAST	 = axis_tlast;
-
-	assign ready = module_ready;
-	assign error_flags = {{(CONTROL_REGISTER_WIDTH - 8){1'b0}}, buffer_pointer_error, buffer_over_flow, adc_b_err[3: 0], adc_a_err[3: 0]};
-
 	wire axis_hand_shake = M_AXIS_TVALID && M_AXIS_TREADY;
 
-	`define ONE_VALID_DATA_SEND_AT_THAT_TIME (axis_hand_shake)
+	assign M_AXIS_TVALID = (axis_state == AXIS_STATE__SEND_STREAM);
+	assign M_AXIS_TLAST	 = axis_tlast;
+	assign M_AXIS_TDATA = axis_tdata;
 
-	`define ONE_VALID_DATA_PUSHED_IN_FIFO (fifo_write_en && !fifo_full)
-	`define ADC_SAMPLING_COMPLETE (!adc_a_sampling && !adc_b_sampling)
+	assign M_AXIS_TSTRB = {(C_M_AXIS_TDATA_WIDTH / 8){1'b1}};
+	assign M_AXIS_TKEEP = {(C_M_AXIS_TDATA_WIDTH / 8){1'b1}};
 
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* ---------------------------------------- AXI-Stream CLOCK DOMAIN ---------------------------------------- */
-	/* --------------------------------------------------------------------------------------------------------- */
+	assign ready = module_ready;
+	assign error_flags = {{(CONTROL_REGISTER_WIDTH - 8){1'b0}}, adc_b_err[3: 0], adc_a_err[3: 0]};
 
-	/* ---------------------------------------------- T_DATA --------------------------------------------------- */
+	assign DEBUG_system_state = system_state;
+	assign DEBUG_sampling_state = sampling_state;
+	assign DEBUG_axis_state = axis_state;
+	assign DEBUG_global_sent_points = global_sent_points;
 
-	always @(*) begin
-		axis_tdata = send_buffer[buffer_pointer];
-	end
+	/* --------------------------------------------- SYNC -------------------------------------------- */
 
-	/* ---------------------------------------------- AXI-Stream Buffer ----------------------------------------------- */
-
-	always @(posedge M_AXIS_ACLK) begin
-		if (!adc_rst_n) software_rst_sync_axi <= FALSE;
-		else software_rst_sync_axi <= software_rst;
-	end
-
-	integer i;
+	/* RESET */
 
 	always @(posedge M_AXIS_ACLK) begin
-		if (!M_AXIS_ARESETN || reset_buffer || buffer_pointer_error || software_rst_sync_axi) begin
-
-			for (i = 0; i <= C_M_AXIS_BUFFER_SIZE - 1; i = i + 1) begin
-				send_buffer[i] <= 0;
-			end
-			send_buffer[INVALID_BUFFER_POINTER] <= INVALID_BUFFER_DATA;
-			buffer_pointer <= INVALID_BUFFER_POINTER;
-
-			buffer_over_flow <= FALSE;
-			buffer_pointer_error <= FALSE;
-
-			fifo_rd_en <= FALSE;
-
+		if (!M_AXIS_ARESETN) begin
+			software_rst_sync__axi <= FALSE;
 		end else begin
-
-			/* push buffer at first */
-
-			if (mst_exec_state == EXEC_STATE__SEND_STREAM) begin
-
-				if (buffer_pointer == INVALID_BUFFER_POINTER) begin  // t_valid = LOW at that moment
-
-					/* if FIFO read enable at that time, push FIFO data to buffer */
-
-					if (fifo_rd_en) begin
-						send_buffer[0] <= current_fifo_read_data;
-						buffer_pointer <= 0;
-					end else begin
-						buffer_pointer <= buffer_pointer;
-					end
-
-					/* Enable FIFO reading */
-
-					if(!fifo_almost_empty) fifo_rd_en <= TRUE;
-					else fifo_rd_en <= FALSE;
-
-				end else if (buffer_pointer <= C_M_AXIS_BUFFER_SIZE - 1) begin
-
-					if (fifo_rd_en) begin  // the data must be push into buffer
-
-						/* FIFO read control */
-
-						if (buffer_pointer >= C_M_AXIS_BUFFER_SIZE - 2) begin
-							fifo_rd_en <= FALSE;  // this is the last data (pointer is C_M_AXIS_BUFFER_SIZE - 1), stop read
-						end else begin
-							if (!fifo_almost_empty) fifo_rd_en <= TRUE;  // continue read
-							else fifo_rd_en <= FALSE;
-						end
-
-						/* -------------------------------------------------------------------------------------- */
-						/* ------------------------------------- Update data ------------------------------------ */
-						/* -------------------------------------------------------------------------------------- */
-
-						/* Update buffer */
-
-						for (i = 0; i <= C_M_AXIS_BUFFER_SIZE - 2; i = i + 1) begin
-							send_buffer[i + 1] <= send_buffer[i];
-						end
-						send_buffer[0] <= current_fifo_read_data;
-
-						/* Update pointer */
-
-						if (!`ONE_VALID_DATA_SEND_AT_THAT_TIME) begin
-
-							if (buffer_pointer <= C_M_AXIS_BUFFER_SIZE - 2) buffer_pointer <= buffer_pointer + 1;  /*  */
-							else begin
-								/* buffer_pointer == C_M_AXIS_BUFFER_SIZE - 1, data must be send */
-								/* Buffer overflow */
-								buffer_over_flow <= TRUE;
-							end
-
-						end else begin
-
-							buffer_pointer <= buffer_pointer;  // do nothing for pointer
-
-						end
-
-					end else begin
-
-						/* Enable FIFO read signal */
-
-						if(!fifo_almost_empty) begin
-
-							/* continue read */
-
-							if (buffer_pointer == C_M_AXIS_BUFFER_SIZE - 1) fifo_rd_en <= FALSE;  // cannot read any more
-							else fifo_rd_en <= TRUE;
-
-						end
-						else fifo_rd_en <= FALSE;
-
-						/* Update buffer pointer */
-
-						if (!`ONE_VALID_DATA_SEND_AT_THAT_TIME) begin
-							buffer_pointer <= buffer_pointer;  // do nothing for pointer
-						end else begin
-							if (buffer_pointer == 0) buffer_pointer <= INVALID_BUFFER_POINTER;
-							else buffer_pointer <= buffer_pointer - 1;
-						end
-
-					end
-
-				end
-
-				else begin
-
-					buffer_pointer_error <= TRUE;  // CRITICAL: BUFFER POINTER ERROR !!!!!
-
-				end
-
-			end else begin
-				
-				fifo_rd_en <= FALSE;  // reset fifo
-
-			end
+			software_rst_sync__axi <= software_rst;
 		end
 	end
-
-	/* ------------------------------------------- Data Input -------------------------------------------------- */
-
-	always @(posedge M_AXIS_ACLK) begin
-		if (!M_AXIS_ARESETN || software_rst_sync_axi) begin
-			current_sampling_data_points <= 0;
-			last_frame_sync <= FALSE;
-		end else begin
-			if (mst_exec_state == EXEC_STATE__IDLE) begin
-				current_sampling_data_points <= sampling_points * FRAME_WORD_NUMBER;  /* FRAME_WORD_NUMBER * 32 bit */
-			end
-			last_frame_sync <= last_frame;
-		end
-	end
-
-	/* ----------------------------------------- Detect rising edge --------------------------------------------- */
-
-	always @(posedge M_AXIS_ACLK) begin
-		if (!M_AXIS_ARESETN || software_rst_sync_axi) begin
-			one_frame_sampling_trigger_sync1 <= LOW;
-			one_frame_sampling_trigger_sync2 <= LOW;
-		end else begin
-			one_frame_sampling_trigger_sync1 <= one_frame_sampling_trigger;
-			one_frame_sampling_trigger_sync2 <= one_frame_sampling_trigger_sync1;
-		end
-	end
-
-	wire one_frame_sampling_trigger_rising_edge = one_frame_sampling_trigger_sync1 && (~one_frame_sampling_trigger_sync2);
-
-	/* ---------------------------------------- System state --------------------------------------------------- */
-
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* ---------------------------------------- ADC CLOCK DOMAIN START ----------------------------------------- */
-	/* --------------------------------------------------------------------------------------------------------- */
-
-	/* sync to mst_exec_state */
-
-	always @(posedge adc_clk) begin
-		if (!adc_rst_n || software_rst_sync_adc) begin
-			mst_exec_state_sync <= EXEC_STATE__IDLE;
-			mst_exec_state_sync00 <= EXEC_STATE__IDLE;
-			mst_exec_state_sync01 <= EXEC_STATE__IDLE;
-		end else begin
-			mst_exec_state_sync00 <= mst_exec_state;
-			mst_exec_state_sync01 <= mst_exec_state_sync00;
-			mst_exec_state_sync <= mst_exec_state_sync01;
-		end
-	end
-
-	/* Reset FIFO when mst_exec_state_sync == EXEC_STATE__INIT_COUNTER */
-
-	always @(posedge adc_clk) begin
-		if (!adc_rst_n || software_rst_sync_adc) begin
-			fifo_reset_count <= 0;
-			fifo_reset_count2 <= 0;
-			fifo_reset <= LOW;  // start reset fifo
-		end else begin
-		  	case (mst_exec_state_sync)
-				
-				EXEC_STATE__INIT_COUNTER: begin
-					if (fifo_reset_count <= FIFO_RESET_CLOCK_COUNT) begin  /* reset sequence 1 */
-						if (fifo_reset == HIGH) fifo_reset_count <= fifo_reset_count + 1;
-						else fifo_reset <= HIGH;
-						fifo_reset_count2 <= 0;
-					end else begin  /* reset sequence 2 */
-						fifo_reset <= LOW;
-						fifo_reset_count2 <= fifo_reset_count2 + 1;
-					end
-				end
-
-				default: begin
-					fifo_reset <= LOW;
-					fifo_reset_count <= 0;
-					fifo_reset_count2 <= 0;
-				end
-
-			endcase
-		end
-	end
-
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* ---------------------------------------- ADC CLOCK DOMAIN END ------------------------------------------- */
-	/* --------------------------------------------------------------------------------------------------------- */
-
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* ------------------------------------ AXI-Stream CLOCK DOMAIN START -------------------------------------- */
-	/* --------------------------------------------------------------------------------------------------------- */
-
-	/* sync to fifo_reset_count2 (ADC Clock Domain --> AXI-Stream Clock Domain) */
-
-	always @(posedge M_AXIS_ACLK) begin
-		if (!M_AXIS_ARESETN || software_rst_sync_axi) begin
-			fifo_reset_count2_sync_00 <= 0;
-			fifo_reset_count2_sync_01 <= 0;
-			fifo_reset_count2_sync <= 0;
-		end else begin
-			fifo_reset_count2_sync_00 <= fifo_reset_count2;
-			fifo_reset_count2_sync_01 <= fifo_reset_count2_sync_00;
-			fifo_reset_count2_sync <= fifo_reset_count2_sync_01;
-		end
-	end
-
-	/* Flags */
-	
-	always @(posedge M_AXIS_ACLK) begin
-	
-		if (!M_AXIS_ARESETN || software_rst_sync_axi) begin
-
-			mst_exec_state <= EXEC_STATE__IDLE;
-			init_count <= 0;
-			
-			module_ready <= TRUE;
-			reset_buffer <= TRUE;  // start reset buffer
-
-		end else begin
-			case (mst_exec_state)
-
-				EXEC_STATE__IDLE: begin
-
-					reset_buffer <= TRUE;  // start reset buffer
-
-					if (one_frame_sampling_trigger_rising_edge) begin
-
-						mst_exec_state <= EXEC_STATE__INIT_COUNTER;
-						module_ready <= FALSE;  // sampling flag to TRUE
-						init_count <= 0;
-						
-					end else begin
-
-						module_ready <= TRUE;
-						
-					end
-				end
-
-				EXEC_STATE__INIT_COUNTER: begin  // reset FIFO & AXI-Stream buffer
-
-					init_count <= init_count + 1;
-
-					if (init_count >= BUFFER_RESET_CLOCK_COUNT) begin
-
-						reset_buffer <= FALSE;
-
-						if (((!fifo_wr_rst_busy && !fifo_rd_rst_busy) && 
-							  buffer_pointer == INVALID_BUFFER_POINTER && 
-							  fifo_reset_count2_sync >= FIFO_RESET_CLOCK_COUNT_2) || 
-						      init_count >= FIFO_RESET_WAIT_MAX_COUNT) begin 
-
-							mst_exec_state <= EXEC_STATE__SEND_STREAM;  // state jump
-
-						end
-
-					end else begin
-
-						reset_buffer <= TRUE;
-					
-					end
-
-				end
-
-				EXEC_STATE__SEND_STREAM: begin
-					if (continuous_sampling) begin
-
-						mst_exec_state <= EXEC_STATE__SEND_STREAM;
-						reset_buffer <= FALSE;  // send not complete
-
-					end else begin
-
-						if (data_send_count >= current_sampling_data_points - 1 && `ONE_VALID_DATA_SEND_AT_THAT_TIME) begin
-							mst_exec_state <= EXEC_STATE__IDLE;
-							reset_buffer <= TRUE;  // send complete, reset buffer
-						end else begin
-							mst_exec_state <= EXEC_STATE__SEND_STREAM;
-							reset_buffer <= FALSE;  // send not complete
-						end
-
-					end
-				end
-
-				default: begin
-					mst_exec_state <= EXEC_STATE__IDLE;
-					init_count <= 0;
-				end
-
-			endcase
-		end
-
-	end
-
-	/* Registers */
-
-	assign M_AXIS_TSTRB	 = {(C_M_AXIS_TDATA_WIDTH/8){1'b1}};  /* Always be TRUE */
-	assign M_AXIS_TKEEP  = {(C_M_AXIS_TDATA_WIDTH/8){1'b1}};  /* Always be TRUE */
-
-	always @(posedge M_AXIS_ACLK) begin
-	
-		if (!M_AXIS_ARESETN || software_rst_sync_axi) begin
-
-			data_send_count <= 0;
-			axis_tlast <= LOW;
-			
-		end else begin
-
-			case (mst_exec_state)
-
-				EXEC_STATE__SEND_STREAM: begin
-
-					if (`ONE_VALID_DATA_SEND_AT_THAT_TIME && !continuous_sampling) begin  // one valid data has been sent at that time
-
-						data_send_count <= data_send_count + 1;
-
-						/*
-							current_sampling_data_points - 1 number of data have been send, (current data is the last one)
-							T_LAST should be HIGH to indicate the last data.
-						*/
-
-						if (data_send_count == current_sampling_data_points - 2) begin  
-
-							if (last_frame_sync) axis_tlast <= HIGH;
-
-						/* 
-						   the last data was successfully sent, 
-						   T_LAST should be LOW at that time in order to comply with the AXI-Stream protocol.
-						*/
-
-						end else if (data_send_count == current_sampling_data_points - 1) begin  // all data have been sent at that time
-
-							if (last_frame_sync) axis_tlast <= LOW;
-
-						end else begin
-							
-							axis_tlast <= LOW;
-
-						end
-					end
-
-				end
-
-				default: begin
-					data_send_count <= 0;
-					axis_tlast <= LOW;
-				end
-
-			endcase
-
-		end
-
-	end
-
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* -------------------------------------- AXI-Stream CLOCK DOMAIN END -------------------------------------- */
-	/* --------------------------------------------------------------------------------------------------------- */
-
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* -------------------------------------------- ADC CLOCK DOMAIN ------------------------------------------- */
-	/* --------------------------------------------------------------------------------------------------------- */
-
-	reg [BIT_NUM - 1: 0] sampling_clk_counter;
-	reg sampling_clk = LOW;
-
-	reg [CONTROL_REGISTER_WIDTH - 1: 0] sampling_clk_increment_sync_00;
-	reg [CONTROL_REGISTER_WIDTH - 1: 0] sampling_clk_increment_sync_01;
-	reg [CONTROL_REGISTER_WIDTH - 1: 0] sampling_clk_increment_sync;
-
-	/* FIFO write logic registers  */
-	
-	reg [2: 0] fifo_write_state = FIFO_WRITE_STATE__IDLE;
-	
-	reg [7: 0] fifo_pushed_number = 8'd0;
-	
-	reg [C_M_AXIS_TDATA_WIDTH - 1: 0] current_fifo_write_data = INVALID_DATA;
-	
-	reg fifo_write_en = 1'b0;
-	
-	reg adc_data_have_pushed = 1'b0;
-
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* ----------------------------------------------- SYNC ---------------------------------------------------- */
-	/* --------------------------------------------------------------------------------------------------------- */
-
-	/* ----------------------- sync 0: software rst (AXI-Stream Domain --> ADC Domain) ------------------------- */
 
 	always @(posedge adc_clk) begin
 		if (!adc_rst_n) begin
-			software_rst_sync_adc_00 <= FALSE;
-			software_rst_sync_adc_01 <= FALSE;
-			software_rst_sync_adc <= FALSE;
+			software_rst_sync0__adc <= FALSE;
+			software_rst_sync1__adc <= FALSE;
+			software_rst_sync__adc <= FALSE;
 		end else begin
-			software_rst_sync_adc_00 <= software_rst;
-			software_rst_sync_adc_01 <= software_rst_sync_adc_00;
-			software_rst_sync_adc <= software_rst_sync_adc_01;
+			software_rst_sync0__adc <= software_rst;
+			software_rst_sync1__adc <= software_rst_sync0__adc;
+			software_rst_sync__adc <= software_rst_sync1__adc;
 		end
 	end
 
-	/* ----------------------- sync 1: sampling_clk_increment -------------------------------------------------- */
+	/* OTHER FLAGS */
 
-	always @(posedge adc_clk) begin
-		if (!adc_rst_n || software_rst_sync_adc) begin
-			
-			sampling_clk_increment_sync_00 <= ADC_DEFAULT_CLOCK_INCREMENT;
-			sampling_clk_increment_sync_01 <= ADC_DEFAULT_CLOCK_INCREMENT;
-			sampling_clk_increment_sync <= ADC_DEFAULT_CLOCK_INCREMENT;
-
-		end else if (mst_exec_state_sync == EXEC_STATE__IDLE) begin
-
-			if (sampling_clk_increment >= MINIUM_SAMPLING_CLK_INCREMENT) sampling_clk_increment_sync_00 <= sampling_clk_increment;
-			else sampling_clk_increment_sync_00 <= sampling_clk_increment_sync_00;
-
-			sampling_clk_increment_sync_01 <= sampling_clk_increment_sync_00;
-			sampling_clk_increment_sync <= sampling_clk_increment_sync_01;
+	always @(posedge M_AXIS_ACLK) begin
+		if (!M_AXIS_ARESETN || software_rst_sync__axi) begin
+			one_frame_trigger_sync0 <= FALSE;
+			one_frame_trigger_sync1 <= FALSE;
+			sp_reg <= DEFAULT_SAMPLING_POINTS;
+			sci_reg_sync0__axi <= DEFAULT_CLOCK_INCREMENT;
+			sci_reg_sync1__axi <= DEFAULT_CLOCK_INCREMENT;
+			sci_reg_sync__axi <= DEFAULT_CLOCK_INCREMENT;
+		end else begin
+			one_frame_trigger_sync0 <= one_frame_sampling_trigger;
+			one_frame_trigger_sync1 <= one_frame_trigger_sync0;
+			sci_reg_sync0__axi <= sci_reg;
+			sci_reg_sync1__axi <= sci_reg_sync0__axi;
+			sci_reg_sync__axi <= sci_reg_sync1__axi;
+			sp_reg <= sampling_points;
 		end
 	end
 
-	/* ---------------------------------------- AD sampling clock ---------------------------------------------- */
+	wire frame_trigger_rising_edge = (one_frame_trigger_sync0 && !one_frame_trigger_sync1);
 
 	always @(posedge adc_clk) begin
-		if (!adc_rst_n || software_rst_sync_adc) begin
-
-			sampling_clk_counter <= 0;
-			sampling_clk <= LOW;
-
-			adc_have_sampled <= FALSE;
-			
+		if (!adc_rst_n || software_rst_sync__adc) begin
+			sci_reg_sync0 <= DEFAULT_CLOCK_INCREMENT;
+			sci_reg_sync1 <= DEFAULT_CLOCK_INCREMENT;
+			sci_reg <= DEFAULT_CLOCK_INCREMENT;
+			system_state_sync0 <= SYSTEM_STATE__IDLE;
+			system_state_sync1 <= SYSTEM_STATE__IDLE;
+			system_state_sync <= SYSTEM_STATE__IDLE;
 		end else begin
+			sci_reg_sync0 <= sampling_clk_increment;
+			sci_reg_sync1 <= sci_reg_sync0;
+			sci_reg <= sci_reg_sync1;
+			system_state_sync0 <= system_state;
+			system_state_sync1 <= system_state_sync0;
+			system_state_sync <= system_state_sync1;
+		end
+	end
 
-			/* Generate sample clock at SEND STREAM state */
+	/* --------------------------------------- Sampling clock ---------------------------------------- */
 
-			if (mst_exec_state_sync != EXEC_STATE__IDLE) begin  /* Start generate clock in advance */
-
-				if (sampling_clk_counter >= sampling_clk_increment_sync - 1) begin
-
-					sampling_clk_counter <= 0;
-					sampling_clk <= ~sampling_clk;
-
+	always @(posedge adc_clk) begin
+		if (!adc_rst_n || software_rst_sync__adc) begin
+			sampling_clk_reg <= FALSE;
+			sampling_clk_count <= 0;
+		end else begin
+			if (system_state_sync == SYSTEM_STATE__SEND_STREAM) begin
+				if (sampling_clk_count >= sci_reg - 1) begin
+					sampling_clk_count <= 0;
+					sampling_clk_reg <= ~sampling_clk_reg;
 				end else begin
-
-					sampling_clk_counter <= sampling_clk_counter + 1;
-
+					sampling_clk_count <= sampling_clk_count + 1;
+					sampling_clk_reg <= sampling_clk_reg;
 				end
-
-				if (!`ADC_SAMPLING_COMPLETE) begin
-					adc_have_sampled <= TRUE;  /* lock to TRUE, to ensure the output data of ADC modules is valid */
-				end
-
 			end else begin
-
-				/* reset */
-
-				sampling_clk_counter <= 0;
-				sampling_clk <= LOW;
-				adc_have_sampled <= FALSE;
-
+				sampling_clk_reg <= FALSE;
+				sampling_clk_count <= 0;
 			end
 		end
 	end
 
-	/* -------------------------------------------------------------------------------------------------------------------- */
-	/* ---------------------------------------- ADC sampling (FIFO write logic) ------------------------------------------- */
-	/* -------------------------------------------------------------------------------------------------------------------- */
+	/* ----------------------------------------------------------------------------------------------- */
+	/* ---------------------------------------- System state ----------------------------------------- */
+	/* ----------------------------------------------------------------------------------------------- */
 
-	/* --------------------------------------------------- FLAGS ---------------------------------------------------------- */
+	always @(posedge M_AXIS_ACLK) begin
+		if (!M_AXIS_ARESETN || software_rst_sync__axi) begin
+			system_state <= SYSTEM_STATE__IDLE;
+		end else begin
+			case (system_state)
+			SYSTEM_STATE__IDLE: begin
+				if (frame_trigger_rising_edge) system_state <= SYSTEM_STATE__INIT_SYNC_PARAM;
+				else system_state <= system_state;
+			end
+			SYSTEM_STATE__INIT_SYNC_PARAM: begin
+				if (sp_reg == sampling_points && sci_reg_sync__axi == sampling_clk_increment) system_state <= SYSTEM_STATE__SEND_STREAM;
+				else system_state <= system_state;
+			end
+			SYSTEM_STATE__SEND_STREAM: begin
+				if (!continuous_sampling && global_sent_points >= sp_reg) system_state <= SYSTEM_STATE__IDLE;
+				else system_state <= system_state;
+			end
+			default: begin
+				system_state <= SYSTEM_STATE__IDLE;
+			end
+			endcase
+		end
+	end
 
-	always @(posedge adc_clk) begin
+	always @(posedge M_AXIS_ACLK) begin
+		if (!M_AXIS_ARESETN || software_rst_sync__axi) begin
+			module_ready <= TRUE;
+		end else begin
+			case (system_state)
+			SYSTEM_STATE__IDLE:  module_ready <= TRUE;
+			SYSTEM_STATE__INIT_SYNC_PARAM: module_ready <= FALSE;
+			SYSTEM_STATE__SEND_STREAM: module_ready <= FALSE;
+			default: module_ready <= TRUE;
+			endcase
+		end
+	end
 
-	   	if (!adc_rst_n || software_rst_sync_adc) begin
+	/* ----------------------------------------------------------------------------------------------- */
+	/* ---------------------------------- AXI-Stream sending state ----------------------------------- */
+	/* ----------------------------------------------------------------------------------------------- */
 
-	        fifo_write_state <= FIFO_WRITE_STATE__IDLE;
-			adc_data_have_pushed <= FALSE;
-			
-	    end else begin
-
-			if (mst_exec_state_sync == EXEC_STATE__SEND_STREAM) begin
-
-				case (fifo_write_state)
-
-				FIFO_WRITE_STATE__IDLE: begin
-
-					/* sampling complete at that time */
-
-					if (`ADC_SAMPLING_COMPLETE && adc_have_sampled) begin
-
-						if (!adc_data_have_pushed) fifo_write_state <= FIFO_WRITE_STATE__WRITE_FIFO;  /* no data pushed */
-						else fifo_write_state <= FIFO_WRITE_STATE__IDLE;
-
-					/* sampling not complete, reset related flag */
-
-					end else begin
-
-						fifo_write_state <= FIFO_WRITE_STATE__IDLE;
-						adc_data_have_pushed <= FALSE;
-						
+	always @(posedge M_AXIS_ACLK) begin
+		if (!M_AXIS_ARESETN || software_rst_sync__axi) begin
+			axis_state <= AXIS_STATE__IDLE;
+			global_sent_points <= 0;
+		end else begin
+			case (axis_state)
+			AXIS_STATE__IDLE: begin
+				if (axis_sending_trigger_reg) axis_state <= AXIS_STATE__SEND_STREAM;
+				else axis_state <= axis_state;
+			end
+			AXIS_STATE__SEND_STREAM: begin
+				if (axis_hand_shake) begin
+					if (axis_words_sent_points >= FRAME_WORD_NUMBER - 1) begin
+						axis_state <= AXIS_STATE__IDLE;
+						global_sent_points <= global_sent_points + 1;
 					end
-
-				end
-
-				FIFO_WRITE_STATE__WRITE_FIFO: begin
-
-					/* ----------------------------------------------------------------------------------- */
-					/* ----------------------- FIFO control (currently pushed) --------------------------- */
-					/* ---------- NOTE: current pushed data count == (fifo_pushed_number + 1) ------------ */
-					/* ----------------------------------------------------------------------------------- */
-
-					if (`ONE_VALID_DATA_PUSHED_IN_FIFO) begin
-					
-						if (fifo_pushed_number >= (FRAME_WORD_NUMBER - 1)) begin
-						
-							fifo_write_state <= FIFO_WRITE_STATE__IDLE;
-							adc_data_have_pushed <= TRUE;
-
-						end else begin
-						
-							fifo_write_state <= FIFO_WRITE_STATE__WRITE_FIFO;
-							adc_data_have_pushed <= FALSE;
-
-						end
-
-					/* ----------------------------------------------------------------------------------- */
-					/* ----------------------- FIFO control (NOT currently pushed) ----------------------- */
-					/* -------------- NOTE: current pushed data count == fifo_pushed_number -------------- */
-					/* ----------------------------------------------------------------------------------- */
-
-					end else begin
-					
-						if (fifo_pushed_number >= FRAME_WORD_NUMBER) begin
-
-							fifo_write_state <= FIFO_WRITE_STATE__IDLE;
-							adc_data_have_pushed <= TRUE;
-
-						end else begin
-						  
-							fifo_write_state <= FIFO_WRITE_STATE__WRITE_FIFO;
-							adc_data_have_pushed <= FALSE;
-
-						end
-
+					else axis_state <= axis_state;
+				end else begin
+					if (axis_words_sent_points >= FRAME_WORD_NUMBER) begin
+						axis_state <= AXIS_STATE__IDLE;
+						global_sent_points <= global_sent_points + 1;
 					end
-			
+					else axis_state <= axis_state;
 				end
-			
-				default: fifo_write_state <= FIFO_WRITE_STATE__IDLE;
+			end
+			endcase
+		end
+	end
 
+	always @(posedge M_AXIS_ACLK) begin
+		if (!M_AXIS_ARESETN || software_rst_sync__axi) begin
+			axis_tdata <= 0;
+			axis_tlast <= FALSE;
+			axis_words_sent_points <= 0;
+		end else begin
+			case (axis_state)
+			AXIS_STATE__IDLE: begin
+				axis_words_sent_points <= 0;
+				axis_tdata <= FRAME_HEADER;
+				axis_tlast <= FALSE;
+			end
+			AXIS_STATE__SEND_STREAM: begin
+				if (axis_hand_shake) begin
+					axis_words_sent_points <= axis_words_sent_points + 1;
+					if (axis_words_sent_points <= DATA_WORD_NUMBER - 1) axis_tdata <= axis_buffer[axis_words_sent_points];
+					else if (axis_words_sent_points <= DATA_WORD_NUMBER) begin
+						axis_tdata <= FRAME_TAILER;
+						if (!continuous_sampling && global_sent_points >= sp_reg - 1 && last_frame) axis_tlast <= TRUE;
+						else axis_tlast <= FALSE;
+					end else begin
+						axis_tlast <= FALSE;
+						axis_tdata <= 0;
+					end
+				end
+			end
+			endcase
+		end
+	end
+
+	/* ----------------------------------------------------------------------------------------------- */
+	/* ------------------------------------- Sampling state ------------------------------------------ */
+	/* ----------------------------------------------------------------------------------------------- */
+
+	always @(posedge M_AXIS_ACLK) begin
+		if (!M_AXIS_ARESETN || software_rst_sync__axi) begin
+			sampling_state <= SAMPLING_STATE__CHECK_COMPLETE;
+		end else begin
+			if (system_state == SYSTEM_STATE__SEND_STREAM) begin
+				case (sampling_state)
+				SAMPLING_STATE__CHECK_COMPLETE: begin
+					if (continuous_sampling) sampling_state <= SAMPLING_STATE__WAIT_SAMPLING_START;
+					else if (!continuous_sampling && global_sent_points < sp_reg) sampling_state <= SAMPLING_STATE__WAIT_SAMPLING_START;
+					else sampling_state <= sampling_state;
+				end
+				SAMPLING_STATE__WAIT_SAMPLING_START: begin
+					if (adc_a_sampling && adc_b_sampling) sampling_state <= SAMPLING_STATE__WAIT_SAMPLING_END;
+					else sampling_state <= sampling_state;
+				end
+				SAMPLING_STATE__WAIT_SAMPLING_END: begin
+					if (!adc_a_sampling && !adc_b_sampling) sampling_state <= SAMPLING_STATE__WAIT_SENDING_END;
+					else sampling_state <= sampling_state;
+				end
+				SAMPLING_STATE__WAIT_SENDING_END: begin
+					if (axis_state == AXIS_STATE__IDLE) sampling_state <= SAMPLING_STATE__PACK_DATA_TO_BUFFER;
+					else sampling_state <= sampling_state;
+				end
+				SAMPLING_STATE__PACK_DATA_TO_BUFFER: begin
+					sampling_state <= SAMPLING_STATE__TRIGGER_AXIS_SENDING;
+				end
+				SAMPLING_STATE__TRIGGER_AXIS_SENDING: begin
+					sampling_state <= SAMPLING_STATE__WAIT_FOR_AXIS_SENDING_START;
+				end
+				SAMPLING_STATE__WAIT_FOR_AXIS_SENDING_START: begin
+					if (axis_state == AXIS_STATE__SEND_STREAM) sampling_state <= SAMPLING_STATE__CHECK_COMPLETE;
+					else sampling_state <= sampling_state;
+				end
+				default: begin
+					sampling_state <= SAMPLING_STATE__CHECK_COMPLETE;
+				end
 				endcase
-
+			end else begin
+				sampling_state <= SAMPLING_STATE__CHECK_COMPLETE;
 			end
 		end
 	end
 
-	/* -------------------------------------------------- REGISTERS ------------------------------------------------------- */
+	always @(posedge M_AXIS_ACLK) begin
+		if (!M_AXIS_ARESETN || software_rst_sync__axi) begin
+			axis_sending_trigger_reg <= LOW;
+		end else begin
+			if (system_state == SYSTEM_STATE__SEND_STREAM) begin
+				case (sampling_state)
+				SAMPLING_STATE__CHECK_COMPLETE: axis_sending_trigger_reg <= LOW;
+				SAMPLING_STATE__WAIT_SAMPLING_START: axis_sending_trigger_reg <= LOW;
+				SAMPLING_STATE__WAIT_SAMPLING_END: axis_sending_trigger_reg <= LOW;
+				SAMPLING_STATE__WAIT_SENDING_END: axis_sending_trigger_reg <= LOW;
+				SAMPLING_STATE__PACK_DATA_TO_BUFFER: begin
+					axis_sending_trigger_reg <= LOW;
+					axis_buffer[0] <= {adc_a_ch2, adc_a_ch1};
+					axis_buffer[1] <= {adc_a_ch4, adc_a_ch3};
+					axis_buffer[2] <= {adc_a_ch6, adc_a_ch5};
+					axis_buffer[3] <= {adc_a_ch8, adc_a_ch7};
 
-	always @(posedge adc_clk) begin
-	   	if (!adc_rst_n || software_rst_sync_adc) begin
-
-	        fifo_write_en <= FALSE;
-			current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};
-
-			fifo_pushed_number <= 0;
-			
-	    end else begin
-
-			if (mst_exec_state_sync == EXEC_STATE__SEND_STREAM) begin
-
-	       		case(fifo_write_state)
-
-	        	   	FIFO_WRITE_STATE__IDLE: begin
-
-						if (`ADC_SAMPLING_COMPLETE && !adc_data_have_pushed) begin  // state jump situation
-
-							fifo_pushed_number <= 0;  /* set to 0, no data have been pushed into FIFO */
-
-							/* ---------------------------------- DATA Control ---------------------------------- */
-
-							current_fifo_write_data <= FRAME_HEADER;
-
-							/* ---------------------------------- FIFO Control ---------------------------------- */
-
-							if (fifo_almost_full) fifo_write_en <= FALSE;
-							else fifo_write_en <= TRUE;
-
-						end else begin
-
-							fifo_pushed_number <= 0;
-							current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};
-							fifo_write_en <= FALSE;
-						  
-						end
-
-	        	    end
-
-	        	   	FIFO_WRITE_STATE__WRITE_FIFO: begin
-
-						if (`ONE_VALID_DATA_PUSHED_IN_FIFO) begin
-
-							fifo_pushed_number <= fifo_pushed_number + 1;  // push one data at that time
-
-							/* ---------------------------------- DATA Control ---------------------------------- */
-
-							case (fifo_pushed_number)
-								8'd0: current_fifo_write_data <= {adc_a_ch2, adc_a_ch1};          /* pushed 1, continue */
-								8'd1: current_fifo_write_data <= {adc_a_ch4, adc_a_ch3};          /* pushed 2, continue */
-								8'd2: current_fifo_write_data <= {adc_a_ch6, adc_a_ch5};          /* pushed 3, continue */
-								8'd3: current_fifo_write_data <= {adc_a_ch8, adc_a_ch7};          /* pushed 4, continue */
-        
-								8'd4: current_fifo_write_data <= {adc_b_ch2, adc_b_ch1};          /* pushed 5, continue */
-								8'd5: current_fifo_write_data <= {adc_b_ch4, adc_b_ch3};          /* pushed 6, continue */
-								8'd6: current_fifo_write_data <= {adc_b_ch6, adc_b_ch5};          /* pushed 7, continue */
-								8'd7: current_fifo_write_data <= {adc_b_ch8, adc_b_ch7};          /* pushed 8, continue */
-        
-								8'd8: current_fifo_write_data <= FRAME_TAILER;                    /* pushed 9, continue */
-
-								8'd9: current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};  /* pushed 10, jump */
-
-								default: current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};  /* invalid */
-							endcase
-
-							/* ----------------------------------------------------------------------------------- */
-							/* ----------------------- FIFO control (currently pushed) --------------------------- */
-							/* ---------- NOTE: current pushed data count == (fifo_pushed_number + 1) ------------ */
-							/* ----------------------------------------------------------------------------------- */
-
-							/* pushed number <= FRAME_WORD_NUMBER - 1, contiune */
-
-							if (fifo_pushed_number <= (FRAME_WORD_NUMBER - 2)) begin
-
-								if (fifo_almost_full) fifo_write_en <= FALSE;
-								else fifo_write_en <= TRUE;
-
-							/* pushed number <= FRAME_WORD_NUMBER, jump */
-
-							end else begin
-								
-								fifo_write_en <= FALSE;
-
-							end
-
-						end else begin
-
-							/* ----------------------------------------------------------------------------------- */
-							/* ----------------------- FIFO control (NOT currently pushed) ----------------------- */
-							/* ---------- NOTE: current pushed data count == fifo_pushed_number ------------------ */
-							/* ----------------------------------------------------------------------------------- */
-							
-							/* pushed number <= FRAME_WORD_NUMBER - 1, contiune */
-
-							if (fifo_pushed_number <= (FRAME_WORD_NUMBER - 1)) begin
-
-								if (fifo_almost_full) fifo_write_en <= FALSE;
-								else fifo_write_en <= TRUE;
-
-							end else begin
-								
-								fifo_write_en <= FALSE;
-
-							end
-
-						end
-
-	        	    end
-
-	       		endcase
-
+					axis_buffer[4] <= {adc_b_ch2, adc_b_ch1};
+					axis_buffer[5] <= {adc_b_ch4, adc_b_ch3};
+					axis_buffer[6] <= {adc_b_ch6, adc_b_ch5};
+					axis_buffer[7] <= {adc_b_ch8, adc_b_ch7};
+				end
+				SAMPLING_STATE__TRIGGER_AXIS_SENDING: axis_sending_trigger_reg <= HIGH;
+				SAMPLING_STATE__WAIT_FOR_AXIS_SENDING_START: begin
+					if (axis_state == AXIS_STATE__SEND_STREAM) axis_sending_trigger_reg <= LOW;
+					else axis_sending_trigger_reg <= HIGH;
+				end
+				default: begin
+					axis_sending_trigger_reg <= LOW;
+				end
+				endcase
 			end else begin
-
-				/* mst_exec_state_sync != EXEC_STATE__SEND_STREAM, Reset */
-				
-				fifo_write_en <= FALSE;
-				fifo_pushed_number <= 0;
-				current_fifo_write_data <= {(C_M_AXIS_TDATA_WIDTH){1'b1}};
-				
+				axis_sending_trigger_reg <= LOW;
 			end
-	    end
+		end
 	end
 
-	/* --------------------------------------------------------------------------------------------------------- */
-	/* ------------------------------------------------ MODULES ------------------------------------------------ */
-	/* --------------------------------------------------------------------------------------------------------- */
-
-	adc_fifo vuprs_adc_fifo (
-  		.rst(fifo_reset),                  // input wire rst
-  		.wr_clk(adc_clk),                  // input wire wr_clk
-  		.rd_clk(M_AXIS_ACLK),              // input wire rd_clk
-  		.din(current_fifo_write_data),     // input wire [31 : 0] din
-  		.wr_en(fifo_write_en),             // input wire wr_en
-  		.rd_en(fifo_rd_en),                // input wire rd_en
-  		.dout(current_fifo_read_data),     // output wire [31 : 0] dout
-  		.full(fifo_full),                  // output wire full
-  		.almost_full(fifo_almost_full),    // output wire almost_full
-  		.empty(fifo_empty),                // output wire empty
-  		.almost_empty(fifo_almost_empty),  // output wire almost_empty
-  		.wr_rst_busy(fifo_wr_rst_busy),    // output wire wr_rst_busy
-  		.rd_rst_busy(fifo_rd_rst_busy)     // output wire rd_rst_busy
-	);
-    
     ad7606 #(
 
         .USR_CLK_CYCLE_NS(USR_CLK_CYCLE_NS),                      /* unit: ns, clock cycle of [usr_clk] (e.g. 20 ns for 50 MHz) */

@@ -75,7 +75,11 @@
 		// Indicates boundary of last packet
 		input wire  S_AXIS_TLAST,
 		// Data is in valid
-		input wire  S_AXIS_TVALID
+		input wire  S_AXIS_TVALID,
+
+		/* DEBUG */
+
+		output wire [3:0] DEBUG_axis_state
 	);
 
 	function integer clogb2 (input integer bit_depth);
@@ -185,7 +189,9 @@
 	assign data_frame7 = data_frame7_reg;
 	assign data_frame8 = data_frame8_reg;
 
-	assign S_AXIS_TREADY = (axis_state == AXIS_WAIT_FOR_DATA_TAILER || 
+	assign DEBUG_axis_state = axis_state;
+
+	assign S_AXIS_TREADY = (axis_state == AXIS_WAIT_FOR_DATA_HEADER || 
 						    axis_state == AXIS_RECEIVE_DATA || 
 							axis_state == AXIS_WAIT_FOR_DATA_TAILER);
 

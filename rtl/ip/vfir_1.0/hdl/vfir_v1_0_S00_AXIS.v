@@ -67,7 +67,14 @@
 		// Indicates boundary of last packet
 		input wire  S_AXIS_TLAST,  /* Do not used */
 		// Data is in valid
-		input wire  S_AXIS_TVALID
+		input wire  S_AXIS_TVALID,
+
+		/* DEBUG */
+
+		output wire [3:0] DEBUG_axis_state,
+		output wire [3:0] DEBUG_fir_state,
+		output wire [3:0] DEBUG_len_update_state,
+		output wire [3:0] DEBUG_coef_update_state
 	);
 	
 	function integer clogb2 (input integer bit_depth);
@@ -94,6 +101,7 @@
 	localparam BRAM_READING_WE = {(BRAM_DATA_WIDTH/8){1'b0}};
 
 	localparam MUL_RESULT_BIT_NUM = BRAM_DATA_WIDTH + ADC_DATA_WIDTH + 1;
+	localparam SCALED_MUL_RESULT_BIT_NUM = MUL_RESULT_BIT_NUM + C_S_AXIS_TDATA_WIDTH + 1;
 	localparam BRAM_ADDR_INCREMENT = BRAM_DATA_WIDTH/8;
 
 	localparam AXIS_RECEIVE_BUFFER_ADDR_SIZE = clogb2(FRAME_WORD_DATA_NUMBER + 1);
@@ -117,15 +125,16 @@
 	localparam [3:0] FIR_WAIT_FOR_TRIGGER         = 4'd0,  /* IDLE: Wait for trigger */
 	                 FIR_CHECK_COEF_UPDATE        = 4'd1,  /* Check coefficient update, wait here */
 					 FIR_PIPELINE_CALCULATION     = 4'd2,  /* FIR calculate */
-					 FIR_GET_SCALE_RESULT         = 4'd3,  /* Unpacking raw result */
-					 FIR_WAIT_SENDING_IDLE        = 4'd4,  /* Wait AXI-S master ready, wait here */
-					 FIR_TRIGGER_SENDING          = 4'd5,  /* Trigger sending */
-					 FIR_WAIT_FOR_SENDING_START   = 4'd6;  /* Wait for sending start */
+					 FIR_GET_SCALE_RESULT         = 4'd3,  /* Get scaled result */
+					 FIR_CONVERT_SCALED_TO_AXIS   = 4'd4,  /* Convert scaled data to AXI-Stream width */
+					 FIR_WAIT_SENDING_IDLE        = 4'd5,  /* Wait AXI-S master ready, wait here */
+					 FIR_TRIGGER_SENDING          = 4'd6,  /* Trigger sending */
+					 FIR_WAIT_FOR_SENDING_START   = 4'd7;  /* Wait for sending start */
 
 	localparam [3:0] LEN_UPDATE_WAIT_FOR_TRIGGER       = 4'd0,  /* Wait for update */
 					 LEN_MAKE_SYSTEM_UPDATE_RESET      = 4'd1,  /* Make system reset */
 					 LEN_CHECK_RESET_FLAGS             = 4'd2,  /* Check system reset flags */
-					 LEN_UPDATE_LENGTH                    = 4'd3,  /* Update Length */
+					 LEN_UPDATE_LENGTH                 = 4'd3,  /* Update Length */
 					 LEN_RELEASE_COEF_UPDATE_RESET     = 4'd4,  /* Release coef update */
 					 LEN_TRIGGER_COEF_UPDATE           = 4'd5,  /* Trigger coef update */
 					 LEN_WAIT_COEF_UPDATE_START        = 4'd6,  /* Wait for coef update start */
@@ -224,6 +233,8 @@
 	reg signed [MUL_RESULT_BIT_NUM-1:0] fir_mul_result_stage5 = 0;  /* stage 5, 1 */
 	reg signed [MUL_RESULT_BIT_NUM-1:0] fir_raw_output = 0;  /* stage 5, output */
 
+	reg signed [SCALED_MUL_RESULT_BIT_NUM-1:0] fir_raw_scaled_output = 0;
+
 	reg fir_stage01_complete_flag = FALSE;  /* TRUE = stage 0.1 complete */
 	reg fir_stage_latency_complete_flag = FALSE; /* TRUE = stage 0 complete */
 	reg fir_stage02_complete_flag = FALSE;  /* TRUE = stage 0.2 complete */
@@ -299,6 +310,11 @@
 	assign S_AXIS_TREADY = ((axis_state == AXIS_WAIT_FOR_DATA_HEADER || 
 						     axis_state == AXIS_RECEIVE_DATA || 
 							 axis_state == AXIS_WAIT_FOR_DATA_TAILER) && !axis_have_reset);
+
+	assign DEBUG_axis_state = axis_state;
+	assign DEBUG_fir_state = fir_state;
+	assign DEBUG_coef_update_state = coef_update_state;
+	assign DEBUG_len_update_state = len_update_state;	
 	
 	`define FIR_S00_AXIS_HAND_SHACK (S_AXIS_TREADY && S_AXIS_TVALID)
 
@@ -370,7 +386,8 @@
 					else axis_state <= AXIS_PUSH_TO_FIR_LINE;
 				end
 				AXIS_PUSH_TO_FIR_LINE: begin
-					axis_state <= AXIS_TRIGGER_FIR;
+					if (refreshed_reg) axis_state <= AXIS_TRIGGER_FIR;  /* if refreshed, jump to AXIS_TRIGGER_FIR */
+					else axis_state <= AXIS_CHECK_RUN_STATUS;  /* if not refreshed, jump to AXIS_CHECK_RUN_STATUS */
 				end
 				AXIS_TRIGGER_FIR: begin
 					axis_state <= AXIS_WAIT_FOR_FIR_START;
@@ -401,13 +418,16 @@
 			case (axis_state)
 				AXIS_CHECK_RUN_STATUS: begin
 					trigger_fir_reg <= LOW;
+					refreshed_reg <= refreshed_reg;
 				end
 				AXIS_WAIT_FOR_DATA_HEADER: begin
 					axis_received_count <= 0;
 					trigger_fir_reg <= LOW;
+					refreshed_reg <= refreshed_reg;
 				end
 				AXIS_RECEIVE_DATA: begin
 					trigger_fir_reg <= LOW;
+					refreshed_reg <= refreshed_reg;
 					if (`FIR_S00_AXIS_HAND_SHACK) begin
 						if (axis_received_count <= FRAME_WORD_DATA_NUMBER - 1) begin
 							axis_received_count <= axis_received_count + 1;
@@ -421,8 +441,10 @@
 				end
 				AXIS_WAIT_FOR_DATA_TAILER: begin
 					trigger_fir_reg <= LOW;
+					refreshed_reg <= refreshed_reg;
 				end
 				AXIS_UNPACKING: begin
+					refreshed_reg <= refreshed_reg;
 					for (i = 0; i < FRAME_WORD_DATA_NUMBER; i = i + 1) begin
 						current_adc_channel_data[2*i] <= $signed(axis_receive_buffer[i][15:0]);
 						current_adc_channel_data[2*i+1] <= $signed(axis_receive_buffer[i][31:16]);
@@ -430,16 +452,17 @@
 				end
 				AXIS_CHECK_FIR_READY: begin
 					trigger_fir_reg <= LOW;
+					refreshed_reg <= refreshed_reg;
 				end
 				AXIS_PUSH_TO_FIR_LINE: begin
 					trigger_fir_reg <= LOW;
 					last_fir_data_line_pointer <= fir_data_line_pointer;  /* last pointer to newest data */
 					if (fir_data_line_pointer >= fir_length_updated - 1) begin
 						fir_data_line_pointer <= 0;
-						refreshed_reg <= TRUE;
+						refreshed_reg <= TRUE;  /* [refreshed] Lock to TRUE here */
 					end else begin
+						refreshed_reg <= refreshed_reg;
 						fir_data_line_pointer <= fir_data_line_pointer + 1;
-						refreshed_reg <= FALSE;
 					end
 					fir_data_line_ch1 [fir_data_line_pointer] <= current_adc_channel_data[0];
 					fir_data_line_ch2 [fir_data_line_pointer] <= current_adc_channel_data[1];
@@ -459,16 +482,18 @@
 					fir_data_line_ch16[fir_data_line_pointer] <= current_adc_channel_data[15];
 				end
 				AXIS_TRIGGER_FIR: begin
+					refreshed_reg <= refreshed_reg;
 					trigger_fir_reg <= HIGH;
 				end
 				AXIS_WAIT_FOR_FIR_START: begin
+					refreshed_reg <= refreshed_reg;
 					if (fir_busy) trigger_fir_reg <= LOW;
 					else trigger_fir_reg <= HIGH;
 				end
 				default: begin
 					axis_received_count <= 0;
 					trigger_fir_reg <= LOW;
-					refreshed_reg <= FALSE;
+					refreshed_reg <= refreshed_reg;
 					fir_data_line_pointer <= 0;
 					last_fir_data_line_pointer <= 0;
 				end
@@ -831,6 +856,9 @@
 				else fir_state <= fir_state;
 			end
 			FIR_GET_SCALE_RESULT: begin
+				fir_state <= FIR_CONVERT_SCALED_TO_AXIS;
+			end
+			FIR_CONVERT_SCALED_TO_AXIS: begin
 				fir_state <= FIR_WAIT_SENDING_IDLE;
 			end
 			FIR_WAIT_SENDING_IDLE: begin
@@ -855,6 +883,7 @@
 		if (S_AXIS_ARESETN == 1'b0 || software_rst_sync || update_system_reset) begin
 			axis_trigger_sending_reg <= FALSE;
 			fir_output_reg <= 0;
+			fir_raw_scaled_output <= 0;
 		end else begin
 			case (fir_state)
 			FIR_WAIT_FOR_TRIGGER: begin
@@ -867,8 +896,11 @@
 				axis_trigger_sending_reg <= FALSE;
 			end
 			FIR_GET_SCALE_RESULT: begin
-				fir_output_reg <= fir_scale_updated * fir_raw_output;
+				fir_raw_scaled_output <= fir_scale_updated * fir_raw_output;
 				axis_trigger_sending_reg <= FALSE;
+			end
+			FIR_CONVERT_SCALED_TO_AXIS: begin
+				fir_output_reg <= fir_raw_scaled_output >>> 16;
 			end
 			FIR_WAIT_SENDING_IDLE: begin
 				axis_trigger_sending_reg <= FALSE;

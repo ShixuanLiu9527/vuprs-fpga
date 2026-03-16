@@ -126,7 +126,7 @@
 	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg1;  /* Update FIR Length ([R]/W) */
 	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg2;  /* Update FIR Coefficient ([R]/W) */
 	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg3;  /* FIR Length (R/W) */
-	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg4;  /* FIR Coefficient Scale (R/W) */
+	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg4;  /* FIR Coefficient Scale Q16.16 format (R/W) */
 	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg5;  /* Run Status Control (R/W), [0]: run enable */
 	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg6;  /* Run Status (R), [0] refreshed, [1]: length updated, [2] coefficient updated */
 	reg [C_S_AXI_DATA_WIDTH-1:0]	slv_reg7;  /* Maximum FIR Length (R) */

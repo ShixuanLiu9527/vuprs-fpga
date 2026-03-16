@@ -79,7 +79,9 @@
 		output wire [C_M00_AXIS_TDATA_WIDTH-1 : 0] m00_axis_tdata,
 		output wire [(C_M00_AXIS_TDATA_WIDTH/8)-1 : 0] m00_axis_tstrb,
 		output wire  m00_axis_tlast,
-		input wire  m00_axis_tready
+		input wire  m00_axis_tready,
+
+		output wire [3:0] DEBUG_axis_state
 	);
 
 	/* M00 AXIS */
@@ -222,7 +224,9 @@
 	    .data_frame5(data_frame5),
 	    .data_frame6(data_frame6),
 	    .data_frame7(data_frame7),
-	    .data_frame8(data_frame8)
+	    .data_frame8(data_frame8),
+
+		.DEBUG_axis_state(DEBUG_axis_state)
 	);
 
 // Instantiation of Axi Bus Interface M00_AXIS

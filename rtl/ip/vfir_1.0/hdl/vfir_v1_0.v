@@ -80,7 +80,14 @@
 		output wire [C_M00_AXIS_TDATA_WIDTH-1 : 0] m00_axis_tdata,
 		output wire [(C_M00_AXIS_TDATA_WIDTH/8)-1 : 0] m00_axis_tstrb,
 		output wire  m00_axis_tlast,
-		input wire  m00_axis_tready
+		input wire  m00_axis_tready,
+
+		/* DEBUG */
+
+		output wire [3:0] DEBUG_axis_state,
+		output wire [3:0] DEBUG_fir_state,
+		output wire [3:0] DEBUG_len_update_state,
+		output wire [3:0] DEBUG_coef_update_state
 	);
 
 	wire [C_S00_AXI_DATA_WIDTH-1:0] fir_length;  /* FIR Length */
@@ -192,7 +199,12 @@
 
 		.bram_clk(bram_clk),  /* assign to AXIS_ACLK */
 		.bram_en(bram_en),
-		.bram_rst(bram_rst)  /* Do not used */
+		.bram_rst(bram_rst),  /* Do not used */
+
+		.DEBUG_axis_state(DEBUG_axis_state),
+		.DEBUG_fir_state(DEBUG_fir_state),
+		.DEBUG_len_update_state(DEBUG_len_update_state),
+		.DEBUG_coef_update_state(DEBUG_coef_update_state)
 	);
 
 // Instantiation of Axi Bus Interface M00_AXIS

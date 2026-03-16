@@ -33,7 +33,9 @@
 		output wire fpga_sampling_led,
 		output wire fpga_adc_card_present_led,
 		
-		output wire [2: 0] DEBUG_frame_state,
+		/* DEBUG */
+
+		output wire [2:0] DEBUG_frame_state,
 
 		// User ports ends
 		// Do not modify the ports beyond this line

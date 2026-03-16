@@ -85,7 +85,7 @@
 
 	assign M_AXIS_TVALID = axis_tvalid;
 	assign M_AXIS_TDATA = axis_tdata;
-	assign M_AXIS_TSTRB = {(C_M_AXIS_TDATA_WIDTH/8){1'b1}};;
+	assign M_AXIS_TSTRB = {(C_M_AXIS_TDATA_WIDTH/8){1'b1}};
 	assign M_AXIS_TLAST = axis_tlast;
 
 	assign axis_send_busy = (axis_state != AXIS_WAIT_FOR_TRIGGER);

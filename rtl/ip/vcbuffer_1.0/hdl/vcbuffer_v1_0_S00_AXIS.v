@@ -59,7 +59,11 @@
 		// Indicates boundary of last packet
 		input wire  S_AXIS_TLAST,  /* do not detected */
 		// Data is in valid
-		input wire  S_AXIS_TVALID
+		input wire  S_AXIS_TVALID,
+
+		/* DEBUG */
+
+		output wire [2:0] DEBUG_axis_state
 	);
 
 	function integer clogb2 (input integer bit_depth);
@@ -123,6 +127,8 @@
 	assign bram_we = BRAM_WE_WRITE;
 	assign bram_en = bram_en_reg;
 	assign newest_bram_addr = newest_bram_addr_reg;
+
+	assign DEBUG_axis_state = axis_state;
 
 	`define AXIS_HAND_SHACK  (S_AXIS_TREADY && S_AXIS_TVALID)
 	`define DATA_PUSHED_TO_BRAM (bram_en)
