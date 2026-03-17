@@ -17,6 +17,8 @@
 
 ## AXI 总线地址分配
 
+地址分配已经配置于 `fpga_config.json`.  
+
 <div align="center">
     <img src="./docs/image/addr.png" alt="addr" style="width:600px; height:auto;" /> 
 </div>
@@ -29,10 +31,10 @@
 
 ## 主要代码入口
 
-[[ 查看 `AXI-Stream ADC Controller` 详细设计 `Verilog` 代码 ]](./rtl/ip/vadc_1.0/hdl)
-[[ 查看 `AXI-Stream BRAM Circular Buffer` 详细设计 `Verilog` 代码 ]](./rtl/ip/vcbuffer_1.0/hdl/)
-[[ 查看 `AXI-Stream Beamforming Pre-delay Unit` 详细设计 `Verilog` 代码 ]](./rtl/ip/vpdelay_1.0/hdl/)
-[[ 查看 `AXI-Stream FIR Filter Bank` 详细设计 `Verilog` 代码 ]](./rtl/ip/vfir_1.0/hdl/)
+[[ 查看 `AXI-Stream ADC Controller` 详细设计 `Verilog` 代码 ]](./rtl/ip/vadc_1.0/hdl)  
+[[ 查看 `AXI-Stream BRAM Circular Buffer` 详细设计 `Verilog` 代码 ]](./rtl/ip/vcbuffer_1.0/hdl/)  
+[[ 查看 `AXI-Stream Beamforming Pre-delay Unit` 详细设计 `Verilog` 代码 ]](./rtl/ip/vpdelay_1.0/hdl/)  
+[[ 查看 `AXI-Stream FIR Filter Bank` 详细设计 `Verilog` 代码 ]](./rtl/ip/vfir_1.0/hdl/)  
 
 ## 主要 IP 核寄存器配置与使用说明
 
