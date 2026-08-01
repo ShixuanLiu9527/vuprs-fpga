@@ -98,8 +98,8 @@
 	localparam ADC_DATA_WIDTH = 16;
 	localparam ADC_CHANNELS = 16;
 
-	localparam FRAME_WORD_NUMBER                = 10;  /* Data Header & Data Tailer included */
-	localparam FRAME_WORD_DATA_NUMBER           = FRAME_WORD_NUMBER - 2;   /* Data Header & Data Tailer excluded */
+	localparam [4:0] FRAME_WORD_NUMBER                = 10;  /* Data Header & Data Tailer included */
+	localparam [4:0] FRAME_WORD_DATA_NUMBER           = FRAME_WORD_NUMBER - 2;   /* Data Header & Data Tailer excluded */
 
 	localparam MAXIMUM_COEFFICIENT_NUMBER = MAXIMUM_FILTER_LENGTH * ADC_CHANNELS;
 
@@ -107,7 +107,7 @@
 
 	localparam MUL_RESULT_BIT_NUM = 64;  /* need 64 bit to store sigma[h(i)*s(i)] */
 	localparam SCALED_MUL_RESULT_BIT_NUM = 128 /* need 128 bit to store all result */;
-	localparam BRAM_ADDR_INCREMENT = BRAM_DATA_WIDTH/8;  /* 4 bytes for each coef */
+	localparam BRAM_ADDR_INCREMENT = 4;  /* 4 bytes for each coef */
 
 	localparam AXIS_RECEIVE_BUFFER_ADDR_SIZE = clogb2(FRAME_WORD_DATA_NUMBER + 1) + 1;
 	localparam FIR_LENGTH_BIT_NUM = clogb2(MAXIMUM_FILTER_LENGTH + 1) + 2;  /* 512 */
@@ -131,11 +131,14 @@
 	                 FIR_CHECK_COEF_UPDATE        	   = 4'd1,  /* Check coefficient update, wait here */
 					 FIR_PIPELINE_CALCULATION     	   = 4'd2,  /* FIR calculate */
 					 FIR_GET_SCALE_RESULT         	   = 4'd3,  /* Get scaled result */
-					 FIR_RIGHT_SHIFT              	   = 4'd4,  /* Convert scaled data to AXI-Stream width */
-					 FIR_CONVERT_SCALED_TO_AXIS   	   = 4'd5,  /* Convert scaled data to AXI-Stream width */
-					 FIR_WAIT_SENDING_IDLE        	   = 4'd6,  /* Wait AXI-S master ready, wait here */
-					 FIR_TRIGGER_SENDING          	   = 4'd7,  /* Trigger sending */
-					 FIR_WAIT_FOR_SENDING_START   	   = 4'd8;  /* Wait for sending start */
+					 FIR_RESULT_SYNC         	       = 4'd4,  /* Sync */
+					 FIR_RIGHT_SHIFT              	   = 4'd5,  /* Right shift */
+					 FIR_SPLIT                         = 4'd6,  /* Split */
+					 FIR_CHECK_SAT                     = 4'd7,  /* Check saturation */
+					 FIR_SAT   	                       = 4'd8,  /* Do saturation for new data */
+					 FIR_WAIT_SENDING_IDLE        	   = 4'd9,  /* Wait AXI-S master ready, wait here */
+					 FIR_TRIGGER_SENDING          	   = 4'd10,  /* Trigger sending */
+					 FIR_WAIT_FOR_SENDING_START   	   = 4'd11;  /* Wait for sending start */
 
 	localparam [3:0] LEN_UPDATE_WAIT_FOR_TRIGGER       = 4'd0,  /* Wait for update */
 					 LEN_MAKE_SYSTEM_UPDATE_RESET      = 4'd1,  /* Make system reset */
@@ -151,6 +154,10 @@
 		    		 COEF_UPDATE_CHECK_FIR_CALCULATING = 4'd1,  /* Check if FIR is calculating, wait here */
 					 COEF_UPDATE_SCALE                 = 4'd2,  /* Update Coefficient */
 					 COEF_UPDATE_COEFFICIENT           = 4'd3;  /* Update Scale */
+
+	localparam [2:0] SAT_FLAG_NONE                     = 3'd0,  /* No saturation */
+		    		 SAT_FLAG_UPPER                    = 3'd1,  /* Upper saturation */
+					 SAT_FLAG_LOWER                    = 3'd2;  /* Lower saturation */
 
 	/* ------------------------- System Related --------------------------- */
 
@@ -221,6 +228,9 @@
 	reg axis_trigger_sending_reg = FALSE;  /* Rising edge to trigger AXI-Stream master sending */
 	reg axis_sending_busy_sync = FALSE;  /* sync to axis_sending_busy */
 
+	reg signed [C_S_AXIS_TDATA_WIDTH-1:0] fir_output_127_96 = $signed(0);  /* fir_output */
+	reg signed [C_S_AXIS_TDATA_WIDTH-1:0] fir_output_95_64 = $signed(0);  /* fir_output */
+	reg signed [C_S_AXIS_TDATA_WIDTH-1:0] fir_output_63_32 = $signed(0);  /* fir_output */
 	reg signed [C_S_AXIS_TDATA_WIDTH-1:0] fir_output_reg = $signed(0);  /* fir_output */
 
 	reg signed [ADC_DATA_WIDTH-1:0] fir_data_raw [ADC_CHANNELS-1:0];  /* current fir data */
@@ -237,6 +247,8 @@
 	reg signed [MUL_RESULT_BIT_NUM-1:0] fir_raw_output = $signed(0);  /* stage 4, output */
 
 	reg signed [SCALED_MUL_RESULT_BIT_NUM-1:0] fir_raw_scaled_output = $signed(0);
+	reg signed [SCALED_MUL_RESULT_BIT_NUM-1:0] fir_raw_scaled_stage1 = $signed(0);
+	reg [2:0] fir_result_sat_flag = SAT_FLAG_NONE;
 
 	reg fir_stage0_complete_flag = FALSE;  /* TRUE = stage 0 complete */
 	reg fir_stage1_complete_flag = FALSE;  /* TRUE = stage 1 complete */
@@ -289,14 +301,13 @@
 	reg [FIR_LENGTH_BIT_NUM-1:0] fir_length_sync = MAXIMUM_FILTER_LENGTH;
 	reg signed [C_S_AXI_DATA_WIDTH-1:0] fir_scale_sync = $signed(0);
 
-	reg [EXTERNAL_BRAM_ADDR_SIZE-1:0] coef_loaded_count = 0;
 	reg [7:0] coef_current_channel = 0;  /* current channel (in coefficient update) */
 	reg [FIR_LENGTH_BIT_NUM-1:0] coef_current_offset = 0;  /* current offset of coefficients */
 
 	reg signed [BRAM_DATA_WIDTH-1:0] bram_data = $signed(0);  /* data from external BRAM */
 	reg [BRAM_DATA_WIDTH-1:0] bram_addr_reg = 0;  /* bram address control */
-	reg bram_en_reg = FALSE;  /* bram enable */
 
+	reg bram_en_reg = FALSE;  /* bram enable */
 	reg bram_en_sync = FALSE;  /* sync to bram_en, latency = 1 */
 	reg bram_en_sync1 = FALSE;  /* sync to bram_en, latency = 2 */
 	
@@ -320,8 +331,8 @@
 	assign DEBUG_fir_state = fir_state;
 	assign DEBUG_coef_update_state = coef_update_state;
 	assign DEBUG_len_update_state = len_update_state;
-	assign DEBUG_fir_coef_raw_4 = fir_coef_raw[4];
-	assign DEBUG_fir_data_raw_4 = fir_data_raw[4];
+	assign DEBUG_fir_coef_raw_4 = 0;
+	assign DEBUG_fir_data_raw_4 = 0;
 	assign DEBUG_coef_updated_times = coef_updated_times;
 	
 	`define FIR_S00_AXIS_HAND_SHACK (S_AXIS_TREADY && S_AXIS_TVALID)
@@ -721,7 +732,6 @@
 			bram_en_reg <= FALSE;
 			bram_addr_reg <= 0;
 			fir_scale_updated <= $signed(0);
-			coef_loaded_count <= 0;
 			coef_current_channel <= 0;
 			coef_current_offset <= 0;
 			coef_updated_reg <= FALSE;
@@ -730,7 +740,6 @@
 			COEF_UPDATE_WAIT_FOR_TRIGGER: begin
 				bram_en_reg <= FALSE;
 				bram_addr_reg <= 0;
-				coef_loaded_count <= 0;
 				coef_current_channel <= 0;
 				coef_current_offset <= 0;
 				coef_updated_reg <= TRUE;  /* can only be TRUE here */
@@ -738,19 +747,17 @@
 			COEF_UPDATE_CHECK_FIR_CALCULATING: begin
 				bram_en_reg <= FALSE;
 				bram_addr_reg <= 0;
-				coef_loaded_count <= 0;
 				coef_current_channel <= 0;
 				coef_current_offset <= 0;
 				coef_updated_reg <= FALSE;
 			end
 			COEF_UPDATE_SCALE: begin
 				fir_scale_updated <= fir_scale_sync;
-				bram_en_reg <= FALSE;
-				bram_addr_reg <= 0;
-				coef_loaded_count <= 0;
 				coef_current_channel <= 0;
 				coef_current_offset <= 0;
 				coef_updated_reg <= FALSE;
+				bram_en_reg <= TRUE;  /* bram_en to high */
+				bram_addr_reg <= 0;  /* bram_addr to 0x00 */
 			end
 			COEF_UPDATE_COEFFICIENT: begin
 				coef_updated_reg <= FALSE;
@@ -759,19 +766,21 @@
 				/* ------------------------------------------------------------------------------------------ */
 				if (bram_en_reg) begin
 					bram_addr_reg <= bram_addr_reg + BRAM_ADDR_INCREMENT;  /* Address + 4 bytes */
-					coef_loaded_count <= coef_loaded_count + 1;
-					if (coef_loaded_count >= fir_coef_number_updated - 1) bram_en_reg <= FALSE;  /* BRAM en control */
+					if (coef_current_channel >= 8'd16) bram_en_reg <= FALSE;  /* BRAM en control */
 					else bram_en_reg <= TRUE;
 				end else begin
 					bram_addr_reg <= bram_addr_reg;
-					if (coef_loaded_count >= fir_coef_number_updated) bram_en_reg <= FALSE;
+					if (coef_current_channel >= 8'd16) bram_en_reg <= FALSE;
 					else bram_en_reg <= TRUE;  /* continuous read */
 				end
 				/* ------------------------------------------------------------------------------------------ */
-				/* ------------------------ Pipeline 2: Read data from BRAM_DOUT ---------------------------- */
+				/* ---------------------- Pipeline 2: Read data from BRAM data out -------------------------- */
 				/* ------------------------------------------------------------------------------------------ */
-				if (bram_en_sync) bram_data <= $signed(bram_dout);  /* Read data  (latency = 1, relative to BRAM_EN) */
-				else bram_data <= bram_data;
+				if (bram_en_sync) begin
+					bram_data <= $signed(bram_dout);
+				end else begin
+					bram_data <= bram_data;
+				end
 				/* ------------------------------------------------------------------------------------------ */
 				/* --------------------- Pipeline 3: Push data to FIR coefficients -------------------------- */
 				/* ------------------------------------------------------------------------------------------ */
@@ -787,22 +796,22 @@
 						end
 						/* save data to coefficients line */
 						case (coef_current_channel)
-							8'd0:  fir_coef_line_ch1 [coef_current_offset] <= bram_data;
-							8'd1:  fir_coef_line_ch2 [coef_current_offset] <= bram_data;
-							8'd2:  fir_coef_line_ch3 [coef_current_offset] <= bram_data;
-							8'd3:  fir_coef_line_ch4 [coef_current_offset] <= bram_data;
-							8'd4:  fir_coef_line_ch5 [coef_current_offset] <= bram_data;
-							8'd5:  fir_coef_line_ch6 [coef_current_offset] <= bram_data;
-							8'd6:  fir_coef_line_ch7 [coef_current_offset] <= bram_data;
-							8'd7:  fir_coef_line_ch8 [coef_current_offset] <= bram_data;
-							8'd8:  fir_coef_line_ch9 [coef_current_offset] <= bram_data;
-							8'd9:  fir_coef_line_ch10[coef_current_offset] <= bram_data;
-							8'd10: fir_coef_line_ch11[coef_current_offset] <= bram_data;
-							8'd11: fir_coef_line_ch12[coef_current_offset] <= bram_data;
-							8'd12: fir_coef_line_ch13[coef_current_offset] <= bram_data;
-							8'd13: fir_coef_line_ch14[coef_current_offset] <= bram_data;
-							8'd14: fir_coef_line_ch15[coef_current_offset] <= bram_data;
-							8'd15: fir_coef_line_ch16[coef_current_offset] <= bram_data;
+							8'd0:  fir_coef_line_ch1 [coef_current_offset] <= $signed(bram_data);
+							8'd1:  fir_coef_line_ch2 [coef_current_offset] <= $signed(bram_data);
+							8'd2:  fir_coef_line_ch3 [coef_current_offset] <= $signed(bram_data);
+							8'd3:  fir_coef_line_ch4 [coef_current_offset] <= $signed(bram_data);
+							8'd4:  fir_coef_line_ch5 [coef_current_offset] <= $signed(bram_data);
+							8'd5:  fir_coef_line_ch6 [coef_current_offset] <= $signed(bram_data);
+							8'd6:  fir_coef_line_ch7 [coef_current_offset] <= $signed(bram_data);
+							8'd7:  fir_coef_line_ch8 [coef_current_offset] <= $signed(bram_data);
+							8'd8:  fir_coef_line_ch9 [coef_current_offset] <= $signed(bram_data);
+							8'd9:  fir_coef_line_ch10[coef_current_offset] <= $signed(bram_data);
+							8'd10: fir_coef_line_ch11[coef_current_offset] <= $signed(bram_data);
+							8'd11: fir_coef_line_ch12[coef_current_offset] <= $signed(bram_data);
+							8'd12: fir_coef_line_ch13[coef_current_offset] <= $signed(bram_data);
+							8'd13: fir_coef_line_ch14[coef_current_offset] <= $signed(bram_data);
+							8'd14: fir_coef_line_ch15[coef_current_offset] <= $signed(bram_data);
+							8'd15: fir_coef_line_ch16[coef_current_offset] <= $signed(bram_data);
 							default:;
 						endcase
 					end else begin
@@ -818,7 +827,6 @@
 				bram_en_reg <= FALSE;
 				bram_addr_reg <= 0;
 				fir_scale_updated <= $signed(0);
-				coef_loaded_count <= 0;
 				coef_updated_reg <= FALSE;
 			end
 			endcase
@@ -852,9 +860,12 @@
 				if (fir_pipeline_complete_flag) fir_state <= FIR_GET_SCALE_RESULT;
 				else fir_state <= fir_state;
 			end
-			FIR_GET_SCALE_RESULT: fir_state <= FIR_RIGHT_SHIFT;
-			FIR_RIGHT_SHIFT: fir_state <= FIR_CONVERT_SCALED_TO_AXIS;
-			FIR_CONVERT_SCALED_TO_AXIS: fir_state <= FIR_WAIT_SENDING_IDLE;
+			FIR_GET_SCALE_RESULT: fir_state <= FIR_RESULT_SYNC;
+			FIR_RESULT_SYNC: fir_state <= FIR_RIGHT_SHIFT;
+			FIR_RIGHT_SHIFT: fir_state <= FIR_SPLIT;
+			FIR_SPLIT: fir_state <= FIR_CHECK_SAT;
+			FIR_CHECK_SAT: fir_state <= FIR_SAT;
+			FIR_SAT: fir_state <= FIR_WAIT_SENDING_IDLE;
 			FIR_WAIT_SENDING_IDLE: begin
 				if (axis_sending_busy_sync) fir_state <= fir_state;
 				else fir_state <= FIR_TRIGGER_SENDING;
@@ -869,27 +880,52 @@
 		end
 	end
 
+	wire high_is_all_zero = (fir_output_127_96 == 0 && fir_output_95_64 == 0 && fir_output_63_32 == 0);
+	wire high_is_all_one  = (fir_output_127_96 == 32'hFFFF_FFFF && fir_output_95_64 == 32'hFFFF_FFFF && fir_output_63_32 == 32'hFFFF_FFFF);
+
 	/* ------------------------------ REGISTERS --------------------------------- */
 
 	always @(posedge S_AXIS_ACLK) begin  /* Save to internal bram */
 		if (S_AXIS_ARESETN == 1'b0 || software_rst_sync || update_system_reset) begin
 			axis_trigger_sending_reg <= FALSE;
+			fir_result_sat_flag <= SAT_FLAG_NONE;
 			fir_output_reg <= $signed(0);
 			fir_raw_scaled_output <= $signed(0);
+			fir_raw_scaled_stage1 <= $signed(0);
 		end else begin
 			case (fir_state)
 			FIR_WAIT_FOR_TRIGGER: axis_trigger_sending_reg <= FALSE;
 			FIR_CHECK_COEF_UPDATE: axis_trigger_sending_reg <= FALSE;
 			FIR_PIPELINE_CALCULATION: axis_trigger_sending_reg <= FALSE;
 			FIR_GET_SCALE_RESULT: begin
-				fir_raw_scaled_output <= $signed(fir_scale_updated) * $signed(fir_raw_output);
+				fir_raw_scaled_stage1 <= $signed(fir_scale_updated) * $signed(fir_raw_output);
 				axis_trigger_sending_reg <= FALSE;
 			end
+			FIR_RESULT_SYNC: fir_raw_scaled_output <= fir_raw_scaled_stage1;
 			FIR_RIGHT_SHIFT: fir_raw_scaled_output <= $signed(fir_raw_scaled_output) >>> 46;
-			FIR_CONVERT_SCALED_TO_AXIS: begin
-				if (fir_raw_scaled_output > $signed(32'sh7FFF_FFFF)) fir_output_reg <= $signed(32'sh7FFF_FFFF);  // upper saturation
-   			 	else if (fir_raw_scaled_output < $signed(32'sh8000_0000)) fir_output_reg <= $signed(32'sh8000_0000);  // lower saturation
-    			else fir_output_reg <= $signed(fir_raw_scaled_output[31:0]); // safety
+			FIR_SPLIT: begin
+				fir_output_127_96 <= $signed(fir_raw_scaled_output[127:96]);
+				fir_output_95_64 <= $signed(fir_raw_scaled_output[95:64]);
+				fir_output_63_32 <= $signed(fir_raw_scaled_output[63:32]);
+				fir_output_reg <= $signed(fir_raw_scaled_output[31:0]);
+			end
+			FIR_CHECK_SAT: begin
+				if (fir_output_127_96[31] == 1'b0) begin
+        			if (!high_is_all_zero)
+            			fir_result_sat_flag <= SAT_FLAG_UPPER;
+        			else 
+            			fir_result_sat_flag <= SAT_FLAG_NONE;
+    			end else begin
+        			if (!high_is_all_one)
+            			fir_result_sat_flag <= SAT_FLAG_LOWER;
+        			else 
+            			fir_result_sat_flag <= SAT_FLAG_NONE;
+    			end
+			end
+			FIR_SAT: begin
+				if (fir_result_sat_flag == SAT_FLAG_UPPER) fir_output_reg <= $signed(32'sh7FFF_FFFF);
+				else if (fir_result_sat_flag == SAT_FLAG_LOWER) fir_output_reg <= $signed(32'sh8000_0000);
+				else fir_output_reg <= fir_output_reg;
 			end
 			FIR_WAIT_SENDING_IDLE: axis_trigger_sending_reg <= FALSE;
 			FIR_TRIGGER_SENDING: axis_trigger_sending_reg <= TRUE;
@@ -998,7 +1034,7 @@
 				end
 				fir_stage1_complete_flag <= fir_stage0_complete_flag;  /* complete flag */
 				/* -------------------------------------------------- */
-				/* ----------------- Stage 2: add ------------------- */
+				/* ----------------- Stage 2: mul ------------------- */
 				/* -------------------------------------------------- */
 				for (i = 0; i < ADC_CHANNELS; i = i + 1) fir_mul_result_stage0[i] <= $signed(fir_data[i]) * $signed(fir_coef[i]);
 				fir_stage2_complete_flag <= fir_stage1_complete_flag;  /* complete flag */
@@ -1032,7 +1068,9 @@
 				/* -------------------------------------------------- */
 				fir_pipeline_complete_flag <= fir_stage7_complete_flag;  /* complete flag */
 				/* ============ pipeline stages END ================= */
-			end else if (fir_state == FIR_GET_SCALE_RESULT || fir_state == FIR_RIGHT_SHIFT) begin  /* Reserve the result for 2 cycles */
+			end else if (fir_state == FIR_GET_SCALE_RESULT || 
+						 fir_state == FIR_RESULT_SYNC || 
+						 fir_state == FIR_RIGHT_SHIFT) begin  /* Reserve the result for 3 cycles */
 				fir_raw_output <= fir_raw_output;
 			end else begin  /* clear data */
 				fir_raw_output <= $signed(0);
