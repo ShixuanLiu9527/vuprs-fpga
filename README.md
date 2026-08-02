@@ -1,6 +1,10 @@
 # 故障定位与识别系统 `FPGA` 仓库
 
 本仓库用于存放 `FPGA` 的工程代码, 包括各个 `IP` 核设计和工程设计, 地址分配等.  
+拉取子仓库:  
+```bash
+git submodule update --init --recursive
+```
 
 ## VIVADO Block Design
 

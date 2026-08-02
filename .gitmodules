@@ -1,0 +1,3 @@
+[submodule "rtl/ip"]
+	path = rtl/ip
+	url = https://github.com/ShixuanLiu9527/vuprs-fpga-ip-hdl.git
